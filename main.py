@@ -59,7 +59,50 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1100, 720)
-        self._build_ui()
+        self._build_ui_v2()
+
+    def _build_ui_v2(self):
+        self.setMinimumSize(1100, 720)
+        self.setStyleSheet("""
+            QWidget { color: #f4f4f4; font-family: 'Segoe UI'; font-size: 12px; }
+            QMainWindow, QWidget { background: #050505; }
+            QFrame#bar, QFrame#panel { background: #050505; border: 1px solid #292929; border-radius: 8px; }
+            QLabel#brand { font-size: 36px; font-weight: 800; color: #ffffff; }
+            QLabel#eyebrow, QLabel#title { font-weight: 800; letter-spacing: 1px; }
+            QLabel#title { font-size: 16px; }
+            QLabel#muted { color: #dddddd; }
+            QPushButton { background: #151515; border: 1px solid #484848; border-radius: 6px; padding: 9px 13px; color: #ffffff; font-weight: 600; }
+            QPushButton:hover { background: #292929; border-color: #ffffff; }
+            QPushButton#primary { background: #ffffff; color: #000000; border: none; font-weight: 800; }
+            QListWidget, QTextEdit { background: #050505; border: none; }
+            QListWidget::item { color: #ffd84d; padding: 5px 7px; border-bottom: 1px solid #292929; }
+            QTextEdit { color: #ffd84d; font-family: Consolas; font-size: 11px; }
+            QComboBox { background: #151515; border: 1px solid #484848; border-radius: 6px; padding: 8px; }
+        """)
+        brand = QLabel("Bili2YT"); brand.setObjectName("brand")
+        eyebrow = QLabel("VIDEO WORKSPACE / V3"); eyebrow.setObjectName("eyebrow")
+        header = QHBoxLayout(); header.addWidget(brand); header.addWidget(eyebrow); header.addStretch(1); header.addWidget(QPushButton("Cài đặt / Đăng nhập"))
+        self.folder_label = QLabel("Chưa chọn thư mục tổng"); self.folder_label.setObjectName("muted")
+        choose = QPushButton("Chọn thư mục"); choose.clicked.connect(self.choose_folder)
+        auto = QPushButton("Chạy tự động  ·  0 phim"); auto.setObjectName("primary"); auto.clicked.connect(self.auto_run)
+        folder_bar = QFrame(); folder_bar.setObjectName("bar")
+        top = QHBoxLayout(folder_bar); top.addWidget(QLabel("THƯ MỤC TỔNG")); top.addWidget(self.folder_label, 1); top.addWidget(choose); top.addWidget(auto)
+        self.movies = QListWidget()
+        self.log_view = QTextEdit(); self.log_view.setReadOnly(True)
+        self.status = QLabel("Sẵn sàng"); self.status.setObjectName("muted")
+        self.engine = QComboBox(); self.engine.addItem("Whisper V3", "whisper-v3"); self.engine.addItem("KPHOTO-Local", "kphoto-local")
+        self.target = QComboBox(); self.target.addItem("English", "en")
+        film_layout = QVBoxLayout(); film_layout.addWidget(QLabel("PHIM", objectName="title")); film_layout.addWidget(QLabel("☐  Chọn tất cả", objectName="muted")); film_layout.addWidget(QLabel("Tích chọn để chạy hàng loạt  ·  bấm tên để xem", objectName="muted")); film_layout.addWidget(self.movies, 1)
+        film_panel = QFrame(); film_panel.setObjectName("panel"); film_panel.setLayout(film_layout)
+        preview = QFrame(); preview.setObjectName("panel"); preview_layout = QVBoxLayout(preview); preview_layout.addWidget(QLabel("XEM TRƯỚC", objectName="title")); blank = QLabel(""); blank.setMinimumHeight(380); preview_layout.addWidget(blank, 1); preview_layout.addWidget(QLabel("▶     + Blur     + Logo     + Khung       Mức mờ  ━━━━━", objectName="muted"))
+        log_panel = QFrame(); log_panel.setObjectName("panel"); log_layout = QVBoxLayout(log_panel); log_layout.addWidget(QLabel("NHẬT KÝ CHUNG", objectName="title")); log_layout.addWidget(QLabel("Chưa có lượt tải", objectName="muted")); log_layout.addWidget(QLabel("0%", objectName="muted")); log_layout.addWidget(self.log_view, 1)
+        middle = QHBoxLayout(); middle.addWidget(film_panel, 1); middle.addWidget(preview, 2); middle.addWidget(log_panel, 1)
+        actions = QHBoxLayout()
+        for label, callback in (("↓ Tải", self.choose_folder), ("+ Ghép", self.auto_run), ("✎ Đặt tên", self.choose_folder), ("✦ Tách vocal", self.separate), ("▣ Tạo SRT", self.create_srt), ("文 Dịch sub", self.translate), ("♫ Ghép vocal", self.mux), ("◆ Xuất video", self.export)):
+            button = QPushButton(label); button.setObjectName("primary" if "Xuất" in label else ""); button.clicked.connect(callback); actions.addWidget(button, 1)
+        actions.addWidget(self.engine); actions.addWidget(self.target)
+        root = QVBoxLayout(); root.setContentsMargins(17, 12, 17, 12); root.addLayout(header); root.addLayout(top); root.addLayout(middle, 1); root.addLayout(actions); root.addWidget(self.status)
+        widget = QWidget(); widget.setLayout(root); self.setCentralWidget(widget)
 
     def _build_ui(self):
         self.folder_label = QLabel("Chưa chọn thư mục")
