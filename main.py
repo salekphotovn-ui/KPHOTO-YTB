@@ -111,7 +111,7 @@ class MainWindow(QMainWindow):
         for label, callback in (("↓ Tải", self.choose_folder), ("+ Ghép", self.auto_run), ("✎ Đặt tên", self.choose_folder), ("✦ Tách vocal", self.separate), ("▣ Tạo SRT", self.create_srt), ("文 Dịch sub", self.translate), ("♫ Ghép vocal", self.mux), ("◆ Xuất video", self.export)):
             button = QPushButton(label); button.setObjectName("primary" if "Xuất" in label else ""); button.clicked.connect(callback); actions.addWidget(button, 1)
         actions.addWidget(self.engine); actions.addWidget(self.target)
-        root = QVBoxLayout(); root.setContentsMargins(17, 12, 17, 12); root.addLayout(header); root.addLayout(top); root.addLayout(middle, 1); root.addLayout(actions); root.addWidget(self.status)
+        root = QVBoxLayout(); root.setContentsMargins(17, 12, 17, 12); root.addLayout(header); root.addWidget(folder_bar); root.addLayout(middle, 1); root.addLayout(actions); root.addWidget(self.status)
         widget = QWidget(); widget.setLayout(root); self.setCentralWidget(widget)
 
     def _build_ui(self):
