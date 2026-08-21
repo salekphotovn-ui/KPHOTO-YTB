@@ -87,7 +87,7 @@ def _choose_chunk_duration(log) -> int:
 
 
 def _separator_executable() -> str:
-    """Use the V2 virtualenv executable even when the recovery launcher is Python 3.11."""
+    """Find the V3 audio-separator executable inside its own Python environment."""
     project_root = Path(__file__).resolve().parents[1]
     candidates = [
         project_root / "venv" / "Scripts" / "audio-separator.exe",
@@ -97,8 +97,8 @@ def _separator_executable() -> str:
         if candidate.is_file():
             return str(candidate)
     raise FileNotFoundError(
-        "Không tìm thấy audio-separator trong venv của V2. "
-        "Hãy cài audio-separator[gpu] vào venv của V2."
+        "Không tìm thấy audio-separator trong venv của V3. "
+        "Hãy cài audio-separator[gpu] vào venv của V3."
     )
 
 

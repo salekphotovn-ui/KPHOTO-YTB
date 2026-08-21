@@ -1,4 +1,4 @@
-"""Runtime paths and release configuration for Bili2YT V2."""
+"""Runtime paths and release configuration for Bili2YT V3."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ import sys
 from pathlib import Path
 
 
-APP_NAME = "Bili2YT V2"
+APP_NAME = "Bili2YT V3"
 VERSION = "0.1.0"
 
-# GitHub repository that owns the dedicated V2 releases.
+# GitHub repository that owns the dedicated V3 releases.
 GITHUB_OWNER = ""
 GITHUB_REPO = ""
-GITHUB_ASSET_NAME = "Bili2YT_V2_update.zip"
+GITHUB_ASSET_NAME = "Bili2YT_V3_update.zip"
 
 
 def app_dir() -> Path:
@@ -28,7 +28,7 @@ FFMPEG_PATH = str(BIN_DIR / "ffmpeg.exe")
 WORK_DIR = app_dir() / "workspace"
 DOWNLOAD_DIR = str(WORK_DIR / "1_downloaded")
 DEFAULT_DFN_PRIORITY = "720P 高清, 720P"
-# Free web translator used by the V2 UI unless an AI model is selected.
+# Free web translator used by the V3 UI unless an AI model is selected.
 TRANSLATOR_MODEL = "google-web"
 # Default model used by the legacy tool.
 SEPARATOR_MODEL = "htdemucs.yaml"

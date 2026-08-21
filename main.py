@@ -60,9 +60,9 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1100, 720)
-        self._build_ui_v2()
+        self._build_ui_v3()
 
-    def _build_ui_v2(self):
+    def _build_ui_v3(self):
         self.setMinimumSize(1100, 720)
         self.setStyleSheet("""
             QWidget { color: #f4f4f4; font-family: 'Segoe UI'; font-size: 14px; }

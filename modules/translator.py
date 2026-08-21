@@ -1,4 +1,4 @@
-"""Google Web/Gemini subtitle translation for the V2 batch workflow."""
+"""Google Web/Gemini subtitle translation for the V3 batch workflow."""
 
 from __future__ import annotations
 
