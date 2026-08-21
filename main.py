@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
@@ -153,7 +154,29 @@ class MainWindow(QMainWindow):
     def task_failed(self, error):
         self.status.setText("Lỗi")
         self.write_log(f"[V3] LỖI: {error}")
+        self._write_bug_report(error)
         QMessageBox.critical(self, "Lỗi pipeline", error)
+
+    def _write_bug_report(self, error: str):
+        report = Path(__file__).with_name("BUG_REPORT.txt")
+        existing = report.read_text(encoding="utf-8") if report.exists() else ""
+        numbers = [int(value) for value in __import__("re").findall(r"\[BUG-(\d+)\]", existing)]
+        bug_id = max(numbers, default=0) + 1
+        entry = (
+            f"\n[BUG-{bug_id:03d}]\n"
+            f"Thoi gian: {datetime.now().astimezone().isoformat(timespec='seconds')}\n"
+            f"Chuc nang: {self.status.text()} / tac vu dang chay\n"
+            f"Video hoac thu muc: {self.root}\n"
+            f"Ket qua thuc te: Tac vu that bai\n"
+            f"Ket qua mong muon: Tac vu hoan tat\n"
+            f"Log loi: {error}\n"
+            "Trang thai: Chua xu ly\n"
+        )
+        try:
+            with report.open("a", encoding="utf-8") as handle:
+                handle.write(entry)
+        except OSError as write_error:
+            self.write_log(f"[V3] Khong ghi duoc BUG_REPORT.txt: {write_error}")
 
     def separate(self):
         self.start_task(separate_folder, str(self.root))
