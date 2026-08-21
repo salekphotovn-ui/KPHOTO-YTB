@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
-    QMessageBox, QPushButton, QComboBox, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QInputDialog,
 )
 
 from modules.separator import separate_folder
@@ -15,6 +15,7 @@ from modules.srt import create_srt_batch
 from modules.translator import translate_srt_batch
 from modules.muxer import mux_folder
 from modules.exporter import export_folder
+from modules.downloader import download_multiple
 
 
 def run_auto_pipeline(folder: str, log_callback=None):
@@ -39,13 +40,13 @@ class TaskWorker(QObject):
     done = pyqtSignal(object)
     failed = pyqtSignal(str)
 
-    def __init__(self, task, *args):
+    def __init__(self, task, *args, **kwargs):
         super().__init__()
-        self.task, self.args = task, args
+        self.task, self.args, self.kwargs = task, args, kwargs
 
     def run(self):
         try:
-            result = self.task(*self.args, log_callback=self.log.emit)
+            result = self.task(*self.args, log_callback=self.log.emit, **self.kwargs)
             self.done.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -105,7 +106,7 @@ class MainWindow(QMainWindow):
         log_panel = QFrame(); log_panel.setObjectName("panel"); log_layout = QVBoxLayout(log_panel); log_layout.addWidget(QLabel("NHẬT KÝ CHUNG", objectName="title")); log_layout.addWidget(QLabel("Chưa có lượt tải", objectName="muted")); log_layout.addWidget(QLabel("0%", objectName="muted")); log_layout.addWidget(self.log_view, 1)
         middle = QHBoxLayout(); middle.setSpacing(8); middle.addWidget(left_widget, 1); middle.addWidget(preview, 2); middle.addWidget(log_panel, 1)
         actions = QHBoxLayout(); actions.setSpacing(7)
-        for label, callback in (("↓ Tải", self.choose_folder), ("+ Ghép", self.auto_run), ("✎ Đặt tên", self.choose_folder), ("✦ Tách vocal", self.separate), ("▣ Tạo SRT", self.create_srt), ("文 Dịch sub", self.translate), ("♫ Ghép vocal", self.mux), ("◆ Xuất video", self.export)):
+        for label, callback in (("↓ Tải", self.download), ("+ Ghép", self.auto_run), ("✎ Đặt tên", self.choose_folder), ("✦ Tách vocal", self.separate), ("▣ Tạo SRT", self.create_srt), ("文 Dịch sub", self.translate), ("♫ Ghép vocal", self.mux), ("◆ Xuất video", self.export)):
             button = QPushButton(label); button.setObjectName("primary" if "Xuất" in label else ""); button.clicked.connect(callback); actions.addWidget(button, 1)
         root = QVBoxLayout(); root.setContentsMargins(17, 12, 17, 12); root.addLayout(header); root.addWidget(folder_bar); root.addLayout(middle, 1); root.addLayout(actions); root.addWidget(self.status)
         widget = QWidget(); widget.setLayout(root); self.setCentralWidget(widget)
@@ -175,16 +176,28 @@ class MainWindow(QMainWindow):
         self.movies.addItems(sorted(p.name for p in self.root.rglob("*.mp4")))
         self.write_log(f"[UI] Đã chọn: {self.root}")
 
+    def download(self):
+        urls, accepted = QInputDialog.getMultiLineText(
+            self, "Tải video Bilibili", "Dán mỗi link một dòng:", ""
+        )
+        if not accepted:
+            return
+        links = [line.strip() for line in urls.splitlines() if line.strip()]
+        if not links:
+            return
+        output_dir = str(self.root / "1_downloaded")
+        self.start_task(download_multiple, links, output_dir=output_dir)
+
     def write_log(self, message):
         self.log_view.append(str(message))
         self.log_view.ensureCursorVisible()
 
-    def start_task(self, task, *args):
+    def start_task(self, task, *args, **kwargs):
         if self.thread and self.thread.isRunning():
             QMessageBox.information(self, "Đang xử lý", "Một tác vụ khác đang chạy.")
             return
         self.thread = QThread(self)
-        self.worker = TaskWorker(task, *args)
+        self.worker = TaskWorker(task, *args, **kwargs)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.log.connect(self.write_log)
