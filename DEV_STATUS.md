@@ -1,0 +1,62 @@
+# Bili2YT V3 - DEV STATUS
+
+## Mục tiêu
+
+V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và không phụ thuộc vào bytecode Python 3.11 của V2.
+
+## Trạng thái hiện tại
+
+- Đã tạo project độc lập tại `Bili2YT_V3`.
+- Đã khởi tạo Git repository riêng.
+- Đã tạo giao diện PyQt6 bằng source `main.py`.
+- Đã nối worker/thread và nhật ký realtime.
+- Đã đặt Google Translate Web làm model dịch mặc định trong luồng V3.
+- Đã giữ `htdemucs.yaml` làm model tách vocal mặc định.
+- Đang cài dependencies vào `Bili2YT_V3/venv` bằng Python 3.12.
+
+## Pipeline V3
+
+Luồng tự động:
+
+1. Tách vocal bằng `htdemucs.yaml`.
+2. Tạo phụ đề bằng Whisper V3.
+3. Dịch Trung - Anh bằng Google Translate Web theo nhóm 10 cue.
+4. Ghép vocal vào video.
+5. Xuất video.
+
+Các bước cũng có thể chạy riêng từ giao diện.
+
+## File quan trọng
+
+- `main.py`: giao diện và điều phối pipeline V3.
+- `modules/separator.py`: tách vocal và xử lý video dài.
+- `modules/srt.py`: Whisper V3/KPHOTO tạo SRT.
+- `modules/translator.py`: Google Web và Gemini fallback/nâng cao.
+- `modules/muxer.py`: ghép vocal vào video.
+- `modules/exporter.py`: xuất video.
+- `run.bat`: khởi chạy bằng Python 3.12.
+
+## Git checkpoints
+
+- `cc48f83`: khởi tạo workspace V3 source-based.
+- `40bdf9e`: thêm launcher Python 3.12.
+- `c572989`: nối pipeline xử lý và luồng tự động.
+
+Mỗi thay đổi chức năng mới phải được kiểm tra và commit riêng. Không sửa trực tiếp V2 khi đang phát triển V3.
+
+## Việc cần test
+
+- Mở giao diện bằng `run.bat` sau khi cài dependency.
+- Chọn thư mục có video MP4.
+- Test riêng tách vocal, Whisper V3 và dịch Google Web.
+- Test ghép vocal và xuất video.
+- Test luồng tự động với một video ngắn trước.
+- Kiểm tra log realtime và file đầu ra.
+- Test trên máy sạch trước khi đóng gói cho nhân viên.
+
+## Quy tắc an toàn
+
+- Không gỡ Python 3.11 trước khi V3 được test hoàn chỉnh.
+- Không xóa V2 hoặc bytecode V2 trong giai đoạn chuyển đổi.
+- Không commit API key, token hoặc file `.env`.
+- Trước thay đổi lớn, tạo Git checkpoint mới.
