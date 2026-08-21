@@ -64,20 +64,19 @@ class MainWindow(QMainWindow):
     def _build_ui_v2(self):
         self.setMinimumSize(1100, 720)
         self.setStyleSheet("""
-            QWidget { color: #f4f4f4; font-family: 'Segoe UI'; font-size: 12px; }
+            QWidget { color: #f4f4f4; font-family: 'Segoe UI'; font-size: 14px; }
             QMainWindow, QWidget { background: #050505; }
             QFrame#bar, QFrame#panel { background: #050505; border: 1px solid #292929; border-radius: 8px; }
             QLabel#brand { font-size: 36px; font-weight: 800; color: #ffffff; }
-            QLabel#eyebrow, QLabel#title { font-weight: 800; letter-spacing: 1px; }
-            QLabel#title { font-size: 16px; }
-            QLabel#muted { color: #dddddd; }
-            QPushButton { background: #151515; border: 1px solid #484848; border-radius: 6px; padding: 9px 13px; color: #ffffff; font-weight: 600; }
+            QLabel#eyebrow, QLabel#title { font-weight: 900; letter-spacing: 1px; }
+            QLabel#title { font-size: 18px; }
+            QLabel#muted { color: #dddddd; font-size: 14px; }
+            QPushButton { background: #151515; border: 1px solid #484848; border-radius: 6px; padding: 10px 13px; color: #ffffff; font-size: 14px; font-weight: 800; }
             QPushButton:hover { background: #292929; border-color: #ffffff; }
             QPushButton#primary { background: #ffffff; color: #000000; border: none; font-weight: 800; }
             QListWidget, QTextEdit { background: #050505; border: none; }
             QListWidget::item { color: #ffd84d; padding: 5px 7px; border-bottom: 1px solid #292929; }
             QTextEdit { color: #ffd84d; font-family: Consolas; font-size: 11px; }
-            QComboBox { background: #151515; border: 1px solid #484848; border-radius: 6px; padding: 8px; }
         """)
         brand = QLabel("Bili2YT"); brand.setObjectName("brand")
         eyebrow = QLabel("VIDEO WORKSPACE / V3"); eyebrow.setObjectName("eyebrow")
@@ -91,8 +90,6 @@ class MainWindow(QMainWindow):
         self.movie_selection = QListWidget()
         self.log_view = QTextEdit(); self.log_view.setReadOnly(True)
         self.status = QLabel("Sẵn sàng"); self.status.setObjectName("muted")
-        self.engine = QComboBox(); self.engine.addItem("Whisper V3", "whisper-v3"); self.engine.addItem("KPHOTO-Local", "kphoto-local")
-        self.target = QComboBox(); self.target.addItem("English", "en")
         film_layout = QVBoxLayout(); film_layout.addWidget(QLabel("PHIM", objectName="title")); film_layout.addWidget(QLabel("☐  Chọn tất cả", objectName="muted")); film_layout.addWidget(QLabel("Tích chọn để chạy hàng loạt  ·  bấm tên để xem", objectName="muted")); film_layout.addStretch(1)
         film_panel = QFrame(); film_panel.setObjectName("panel"); film_panel.setLayout(film_layout)
         list_layout = QVBoxLayout(); list_layout.addWidget(QLabel("DANH SÁCH PHIM", objectName="title")); list_layout.addWidget(self.movies, 1)
@@ -110,7 +107,6 @@ class MainWindow(QMainWindow):
         actions = QHBoxLayout(); actions.setSpacing(7)
         for label, callback in (("↓ Tải", self.choose_folder), ("+ Ghép", self.auto_run), ("✎ Đặt tên", self.choose_folder), ("✦ Tách vocal", self.separate), ("▣ Tạo SRT", self.create_srt), ("文 Dịch sub", self.translate), ("♫ Ghép vocal", self.mux), ("◆ Xuất video", self.export)):
             button = QPushButton(label); button.setObjectName("primary" if "Xuất" in label else ""); button.clicked.connect(callback); actions.addWidget(button, 1)
-        actions.addWidget(self.engine); actions.addWidget(self.target)
         root = QVBoxLayout(); root.setContentsMargins(17, 12, 17, 12); root.addLayout(header); root.addWidget(folder_bar); root.addLayout(middle, 1); root.addLayout(actions); root.addWidget(self.status)
         widget = QWidget(); widget.setLayout(root); self.setCentralWidget(widget)
 
@@ -238,10 +234,10 @@ class MainWindow(QMainWindow):
         self.start_task(run_auto_pipeline, str(self.root))
 
     def create_srt(self):
-        self.start_task(create_srt_batch, str(self.root), self.engine.currentData())
+        self.start_task(create_srt_batch, str(self.root), "whisper-v3")
 
     def translate(self):
-        self.start_task(translate_srt_batch, str(self.root), self.target.currentData(), "google-web", "")
+        self.start_task(translate_srt_batch, str(self.root), "en", "google-web", "")
 
     def mux(self):
         self.start_task(mux_folder, str(self.root))
