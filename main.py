@@ -221,7 +221,8 @@ class MainWindow(QMainWindow):
         links, dfn_priority = dialog.values()
         if not links:
             return
-        output_dir = str(self.root / "1_downloaded")
+        output_dir = str(self.root)
+        self.write_log(f"[Download] Đã nhận dạng {len(links)} link")
         self.start_task(download_multiple, links, dfn_priority=dfn_priority, output_dir=output_dir)
 
     def write_log(self, message):
@@ -236,10 +237,11 @@ class MainWindow(QMainWindow):
             if percent == self._last_download_percent:
                 return
             self._last_download_percent = percent
+            return
         elif "[DownloadProgress] DONE" in text:
             self.progress.setValue(100)
             self._last_download_percent = 100
-        elif text.startswith("[BBDown] Lệnh chạy:"):
+        elif text.startswith("[BBDown]") or "[DownloadProgress] START" in text:
             return
         self.log_view.append(text)
         self.log_view.ensureCursorVisible()
