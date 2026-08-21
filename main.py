@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication, QFileDialog, QHBoxLayout, QLabel, QListWidget, QMainWindow,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QPushButton, QComboBox, QTextEdit, QVBoxLayout, QWidget,
 )
 
