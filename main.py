@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
-    QDialogButtonBox, QComboBox,
+    QDialogButtonBox, QComboBox, QProgressBar,
 )
 
 from modules.separator import separate_folder
@@ -139,7 +140,7 @@ class MainWindow(QMainWindow):
             controls.addWidget(QPushButton(label))
         controls.addWidget(QLabel("Mức mờ")); controls.addWidget(QLabel("━━━━━━")); controls.addWidget(QLabel("00:00 / 00:00"))
         preview_layout.addLayout(controls)
-        log_panel = QFrame(); log_panel.setObjectName("panel"); log_layout = QVBoxLayout(log_panel); log_layout.addWidget(QLabel("NHẬT KÝ CHUNG", objectName="title")); log_layout.addWidget(QLabel("Chưa có lượt tải", objectName="muted")); log_layout.addWidget(QLabel("0%", objectName="muted")); log_layout.addWidget(self.log_view, 1)
+        log_panel = QFrame(); log_panel.setObjectName("panel"); log_layout = QVBoxLayout(log_panel); log_layout.addWidget(QLabel("NHẬT KÝ CHUNG", objectName="title")); log_layout.addWidget(QLabel("Chưa có lượt tải", objectName="muted")); self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0); self.progress.setFormat("%p%"); log_layout.addWidget(self.progress); log_layout.addWidget(self.log_view, 1)
         middle = QHBoxLayout(); middle.setSpacing(8); middle.addWidget(left_widget, 1); middle.addWidget(preview, 2); middle.addWidget(log_panel, 1)
         actions = QHBoxLayout(); actions.setSpacing(7)
         for label, callback in (("↓ Tải", self.download), ("+ Ghép", self.auto_run), ("✎ Đặt tên", self.choose_folder), ("✦ Tách vocal", self.separate), ("▣ Tạo SRT", self.create_srt), ("文 Dịch sub", self.translate), ("♫ Ghép vocal", self.mux), ("◆ Xuất video", self.export)):
@@ -223,7 +224,13 @@ class MainWindow(QMainWindow):
         self.start_task(download_multiple, links, dfn_priority=dfn_priority, output_dir=output_dir)
 
     def write_log(self, message):
-        self.log_view.append(str(message))
+        text = str(message)
+        match = re.search(r"\[DownloadProgress\]\s+PERCENT.*?percent=([0-9]+(?:\.[0-9]+)?)", text, re.IGNORECASE)
+        if match:
+            self.progress.setValue(max(0, min(100, round(float(match.group(1))))))
+        elif "[DownloadProgress] DONE" in text:
+            self.progress.setValue(100)
+        self.log_view.append(text)
         self.log_view.ensureCursorVisible()
 
     def start_task(self, task, *args, **kwargs):
