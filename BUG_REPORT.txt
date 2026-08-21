@@ -1,0 +1,24 @@
+Bili2YT V3 - BUG REPORT
+=======================
+
+Huong dan:
+- Moi loi ghi them mot muc moi o cuoi file.
+- Khong xoa log loi cu; ghi trang thai da fix sau khi Codex xu ly.
+- Co the dan nguyen van log trong o Nhat ky vao muc "Log loi".
+
+Mau ghi loi
+----------
+[BUG-001]
+Thoi gian:
+Chuc nang: (Chon thu muc / Tach vocal / Tao SRT / Dich / Ghep vocal / Xuat video / Tu dong)
+Video hoac thu muc:
+Cac buoc tai hien:
+1.
+2.
+3.
+Ket qua thuc te:
+Ket qua mong muon:
+Log loi:
+Trang thai: Chua xu ly
+
+
