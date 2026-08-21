@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
         self.root = Path.cwd()
         self.thread = None
         self.worker = None
+        self._last_download_percent = None
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1100, 720)
         self._build_ui_v3()
@@ -225,11 +226,21 @@ class MainWindow(QMainWindow):
 
     def write_log(self, message):
         text = str(message)
-        match = re.search(r"\[DownloadProgress\]\s+PERCENT.*?percent=([0-9]+(?:\.[0-9]+)?)", text, re.IGNORECASE)
+        match = re.search(r"(?:\[DownloadProgress\]\s+PERCENT.*?\s+)?percent=([0-9]+(?:\.[0-9]+)?)", text, re.IGNORECASE)
         if match:
-            self.progress.setValue(max(0, min(100, round(float(match.group(1))))))
+            percent = max(0, min(100, round(float(match.group(1)))))
+            self.progress.setValue(percent)
+            # Keep the progress bar live without filling the log with repeats.
+            if percent not in (0, 100) and percent % 5 != 0:
+                return
+            if percent == self._last_download_percent:
+                return
+            self._last_download_percent = percent
         elif "[DownloadProgress] DONE" in text:
             self.progress.setValue(100)
+            self._last_download_percent = 100
+        elif text.startswith("[BBDown] Lệnh chạy:"):
+            return
         self.log_view.append(text)
         self.log_view.ensureCursorVisible()
 
