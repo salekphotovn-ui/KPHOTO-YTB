@@ -19,6 +19,7 @@ from modules.muxer import mux_folder
 from modules.exporter import export_folder
 from modules.downloader import bbdown_login, download_multiple, has_login_session
 from modules.rename import auto_rename_folder
+from modules.concat import concat_videos
 
 
 def run_auto_pipeline(folder: str, log_callback=None):
@@ -145,7 +146,7 @@ class MainWindow(QMainWindow):
         log_panel = QFrame(); log_panel.setObjectName("panel"); log_layout = QVBoxLayout(log_panel); log_layout.addWidget(QLabel("NHẬT KÝ CHUNG", objectName="title")); log_layout.addWidget(QLabel("Chưa có lượt tải", objectName="muted")); self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0); self.progress.setFormat("%p%"); log_layout.addWidget(self.progress); log_layout.addWidget(self.log_view, 1)
         middle = QHBoxLayout(); middle.setSpacing(8); middle.addWidget(left_widget, 1); middle.addWidget(preview, 2); middle.addWidget(log_panel, 1)
         actions = QHBoxLayout(); actions.setSpacing(7)
-        for label, callback in (("↓ Tải", self.download), ("+ Ghép", self.auto_run), ("✎ Đặt tên", self.rename), ("✦ Tách vocal", self.separate), ("▣ Tạo SRT", self.create_srt), ("文 Dịch sub", self.translate), ("♫ Ghép vocal", self.mux), ("◆ Xuất video", self.export)):
+        for label, callback in (("↓ Tải", self.download), ("+ Ghép", self.concat), ("✎ Đặt tên", self.rename), ("✦ Tách vocal", self.separate), ("▣ Tạo SRT", self.create_srt), ("文 Dịch sub", self.translate), ("♫ Ghép vocal", self.mux), ("◆ Xuất video", self.export)):
             button = QPushButton(label); button.setObjectName("primary" if "Xuất" in label else ""); button.clicked.connect(callback); actions.addWidget(button, 1)
         root = QVBoxLayout(); root.setContentsMargins(17, 12, 17, 12); root.addLayout(header); root.addWidget(folder_bar); root.addLayout(middle, 1); root.addLayout(actions); root.addWidget(self.status)
         widget = QWidget(); widget.setLayout(root); self.setCentralWidget(widget)
@@ -300,6 +301,16 @@ class MainWindow(QMainWindow):
 
     def rename(self):
         self.start_task(auto_rename_folder, str(self.root))
+
+    def concat(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Chọn video để ghép", str(self.root), "Video (*.mp4 *.mkv *.mov *.avi)"
+        )
+        if len(files) < 2:
+            if files:
+                QMessageBox.information(self, "Ghép video", "Cần chọn ít nhất 2 video.")
+            return
+        self.start_task(concat_videos, files)
 
     def auto_run(self):
         self.start_task(run_auto_pipeline, str(self.root))
