@@ -7,7 +7,8 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
-    QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QInputDialog,
+    QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
+    QDialogButtonBox, QComboBox,
 )
 
 from modules.separator import separate_folder
@@ -15,7 +16,7 @@ from modules.srt import create_srt_batch
 from modules.translator import translate_srt_batch
 from modules.muxer import mux_folder
 from modules.exporter import export_folder
-from modules.downloader import download_multiple
+from modules.downloader import bbdown_login, download_multiple, has_login_session
 
 
 def run_auto_pipeline(folder: str, log_callback=None):
@@ -50,6 +51,41 @@ class TaskWorker(QObject):
             self.done.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
+
+
+class DownloadDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Tải video Bilibili")
+        self.resize(620, 430)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Dán mỗi link Bilibili trên một dòng:"))
+        self.urls = QTextEdit()
+        self.urls.setPlaceholderText("https://www.bilibili.com/video/BV...\nhttps://www.bilibili.com/video/BV...")
+        layout.addWidget(self.urls, 1)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Chất lượng:"))
+        self.dfn = QComboBox()
+        self.dfn.addItem("720P (mặc định)", "720P 高清, 720P")
+        self.dfn.addItem("1080P ưu tiên", "1080P 高清, 1080P, 720P 高清, 720P")
+        row.addWidget(self.dfn, 1)
+        self.login_status = QLabel("Đã đăng nhập" if has_login_session() else "Chưa đăng nhập")
+        row.addWidget(self.login_status)
+        login = QPushButton("Đăng nhập QR")
+        login.clicked.connect(self.login)
+        row.addWidget(login)
+        layout.addLayout(row)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def login(self):
+        bbdown_login()
+        self.login_status.setText("Đã đăng nhập" if has_login_session() else "Chưa đăng nhập")
+
+    def values(self):
+        return [line.strip() for line in self.urls.toPlainText().splitlines() if line.strip()], self.dfn.currentData()
 
 
 class MainWindow(QMainWindow):
@@ -177,16 +213,14 @@ class MainWindow(QMainWindow):
         self.write_log(f"[UI] Đã chọn: {self.root}")
 
     def download(self):
-        urls, accepted = QInputDialog.getMultiLineText(
-            self, "Tải video Bilibili", "Dán mỗi link một dòng:", ""
-        )
-        if not accepted:
+        dialog = DownloadDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        links = [line.strip() for line in urls.splitlines() if line.strip()]
+        links, dfn_priority = dialog.values()
         if not links:
             return
         output_dir = str(self.root / "1_downloaded")
-        self.start_task(download_multiple, links, output_dir=output_dir)
+        self.start_task(download_multiple, links, dfn_priority=dfn_priority, output_dir=output_dir)
 
     def write_log(self, message):
         self.log_view.append(str(message))
