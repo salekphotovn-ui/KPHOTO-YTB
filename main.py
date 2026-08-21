@@ -12,6 +12,25 @@ from PyQt6.QtWidgets import (
 from modules.separator import separate_folder
 from modules.srt import create_srt_batch
 from modules.translator import translate_srt_batch
+from modules.muxer import mux_folder
+from modules.exporter import export_folder
+
+
+def run_auto_pipeline(folder: str, log_callback=None):
+    def log(message):
+        if log_callback:
+            log_callback(message)
+
+    log("[AutoStage] Đang tách vocal")
+    separate_folder(folder, log_callback=log_callback)
+    log("[AutoStage] Đang tạo SRT Whisper V3")
+    create_srt_batch(folder, engine="whisper-v3", log_callback=log_callback)
+    log("[AutoStage] Đang dịch Google Translate Web")
+    translate_srt_batch(folder, "en", "google-web", "", log_callback=log_callback)
+    log("[AutoStage] Đang ghép vocal")
+    mux_folder(folder, log_callback=log_callback)
+    log("[AutoStage] Đang xuất video")
+    return export_folder(folder, log_callback=log_callback)
 
 
 class TaskWorker(QObject):
@@ -64,9 +83,12 @@ class MainWindow(QMainWindow):
 
         actions = QHBoxLayout()
         for label, callback in (
+            ("Chạy tự động", self.auto_run),
             ("Tách vocal", self.separate),
             ("Tạo SRT", self.create_srt),
             ("Dịch Google Web", self.translate),
+            ("Ghép vocal", self.mux),
+            ("Xuất video", self.export),
         ):
             button = QPushButton(label)
             button.clicked.connect(callback)
@@ -136,11 +158,20 @@ class MainWindow(QMainWindow):
     def separate(self):
         self.start_task(separate_folder, str(self.root))
 
+    def auto_run(self):
+        self.start_task(run_auto_pipeline, str(self.root))
+
     def create_srt(self):
         self.start_task(create_srt_batch, str(self.root), self.engine.currentData())
 
     def translate(self):
         self.start_task(translate_srt_batch, str(self.root), self.target.currentData(), "google-web", "")
+
+    def mux(self):
+        self.start_task(mux_folder, str(self.root))
+
+    def export(self):
+        self.start_task(export_folder, str(self.root))
 
 
 def main():
