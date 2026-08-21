@@ -1,0 +1,9 @@
+PyQt6>=6.6.0
+faster-whisper
+funasr
+torch
+torchaudio
+audio-separator[gpu]>=0.20.0
+# CUDA 12.x compatible ONNX Runtime GPU (1.28 requires CUDA 13.x).
+onnxruntime-gpu==1.22.0
+audioread
