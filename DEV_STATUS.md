@@ -18,6 +18,7 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Đã thêm log tiến độ dịch theo số cue và ước tính chi phí theo bảng giá Qwen.
 - Đã cập nhật prompt dịch theo phong cách tiếng Anh bản địa, ưu tiên ngữ cảnh và sắc thái nhân vật.
 - Hybrid đã được đặt làm model dịch mặc định: Qwen3.8-Max dịch chính, Gemini 3.6 Flash-High sửa cue nghi ngờ.
+- Hộp thoại dịch luôn chọn sẵn radio Hybrid cuối danh sách; `QWEN_MODEL` không còn ghi đè lựa chọn mặc định trên giao diện.
 - Hybrid dùng hai key riêng trong `config.local.json`: `qwen_api_key` và `gemini36_api_key`.
 - Đã thêm tính chi phí theo model, QA ký tự Trung/cue dài và retry batch để tránh phát sinh request hàng loạt.
 - Đã thêm xem trước video khi chọn phim: phát/tạm dừng, kéo timeline và hiển thị đúng phụ đề `subtitles/en.srt` theo thời gian.

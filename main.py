@@ -121,12 +121,6 @@ class TranslateDialog(QDialog):
         self.gemini31 = QRadioButton("Gemini 3.1 Flash-Lite (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini31)
         self.hybrid = QRadioButton("Hybrid: Qwen3.8-Max + Gemini sửa chọn lọc"); layout.addWidget(self.hybrid)
         self.hybrid.setChecked(True)
-        if os.getenv("QWEN_MODEL", "qwen3.7-plus").lower() == "qwen3.8-max":
-            self.qwen38.setChecked(True)
-        if os.getenv("TRANSLATOR_MODEL", "").lower() == "gemini-3.6-flash-high":
-            self.gemini36.setChecked(True)
-        if os.getenv("TRANSLATOR_MODEL", "").lower() == "gemini-3.1-flash-lite":
-            self.gemini31.setChecked(True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
