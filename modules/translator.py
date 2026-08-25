@@ -296,7 +296,12 @@ def _qwen_translate(items: list[dict], source: str, target: str, model: str, api
                 timeout=(30, 300),
             )
             if response.ok:
-                data = response.json()
+                if not response.text.strip():
+                    raise RuntimeError("Vilao trả response rỗng")
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    raise RuntimeError(f"Vilao trả body không phải JSON: {response.text[:200]}") from exc
                 usage = data.get("usage", {}) or {}
                 with _QWEN_USAGE_LOCK:
                     _QWEN_USAGE["input"] += int(usage.get("prompt_tokens", 0) or 0)
