@@ -312,21 +312,34 @@ def _run_whisper_v3_long(audio_path: Path, log_callback, model, duration: float)
                 continue
             start = max(0.0, index * chunk_seconds - (overlap if index else 0.0))
             end = min(duration, (index + 1) * chunk_seconds + (overlap if index + 1 < count else 0.0))
-            chunk_path = work_dir / f"chunk_{index:04d}.flac"
+            length = max(0.0, end - start)
+            # PCM WAV avoids sporadic FFmpeg FLAC encoder failures such as
+            # "invalid block size: 15" on long sources. Keep only one chunk
+            # on disk at a time so multi-hour videos do not consume GBs.
+            chunk_path = work_dir / f"chunk_{index:04d}.wav"
             extracted = subprocess.run(
-                [FFMPEG_PATH, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", str(audio_path), "-c:a", "flac", str(chunk_path)],
+                [
+                    FFMPEG_PATH, "-hide_banner", "-loglevel", "error", "-y",
+                    "-ss", f"{start:.3f}", "-i", str(audio_path),
+                    "-t", f"{length:.3f}", "-map", "0:a:0", "-vn",
+                    "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+                    str(chunk_path),
+                ],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600,
             )
             if extracted.returncode != 0:
                 raise RuntimeError(extracted.stderr[-800:] or "Khong tach duoc audio chunk Whisper.")
-            iterator, _info = model.transcribe(str(chunk_path), **_whisper_transcribe_options())
-            for segment in iterator:
-                for local_cue in _split_whisper_segment(segment):
-                    item = dict(local_cue)
-                    item["start"] = float(item["start"]) + start
-                    item["end"] = float(item["end"]) + start
-                    if index == 0 or item["start"] >= index * chunk_seconds:
-                        combined.append(item)
+            try:
+                iterator, _info = model.transcribe(str(chunk_path), **_whisper_transcribe_options())
+                for segment in iterator:
+                    for local_cue in _split_whisper_segment(segment):
+                        item = dict(local_cue)
+                        item["start"] = float(item["start"]) + start
+                        item["end"] = float(item["end"]) + start
+                        if index == 0 or item["start"] >= index * chunk_seconds:
+                            combined.append(item)
+            finally:
+                chunk_path.unlink(missing_ok=True)
             completed.add(index)
             checkpoint.write_text(json.dumps({"completed": sorted(completed), "segments": combined}, ensure_ascii=False), encoding="utf-8")
             log_callback(f"[SrtProgress] CHUNK {index + 1}/{count}")
