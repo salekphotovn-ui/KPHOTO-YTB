@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
         self.pending_download_dfn = "720P 高清, 720P"
         self._last_download_percent = None
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
-        self.resize(1500, 950)
+        self.resize(1200, 780)
         self._build_ui_v3()
 
     def _build_ui_v3(self):
@@ -428,8 +428,15 @@ def main():
     app = QApplication(sys.argv)
     app.setStyleSheet("QMainWindow,QWidget{background:#050505;color:#fff} QPushButton{padding:8px 12px}")
     window = MainWindow()
+    screen = QApplication.primaryScreen().availableGeometry()
+    width = int(screen.width() * 0.8)
+    height = int(screen.height() * 0.8)
+    window.resize(width, height)
+    window.move(
+        screen.left() + (screen.width() - width) // 2,
+        screen.top() + (screen.height() - height) // 2,
+    )
     window.show()
-    window.showMaximized()
     return app.exec()
 
 
