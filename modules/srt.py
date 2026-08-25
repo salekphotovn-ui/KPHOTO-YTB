@@ -153,6 +153,52 @@ def _run_kphoto_chunked(audio_path: Path, log_callback) -> dict:
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
+def _run_whisper_v3_long(audio_path: Path, log_callback, model, duration: float) -> dict:
+    """Transcribe long audio in resumable overlapping chunks with one model load."""
+    chunk_seconds = 30 * 60
+    overlap = 8.0
+    count = max(1, int((duration + chunk_seconds - 1) // chunk_seconds))
+    checkpoint = audio_path.with_name(f".{audio_path.stem}_whisper_checkpoint.json")
+    combined = []
+    completed = set()
+    if checkpoint.is_file():
+        try:
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+            combined = saved.get("segments", [])
+            completed = set(saved.get("completed", []))
+        except (OSError, ValueError, TypeError):
+            pass
+    work_dir = Path(tempfile.mkdtemp(prefix="bili2yt_whisper_", dir=str(audio_path.parent)))
+    try:
+        log_callback(f"Whisper V3: video dai {duration / 3600:.2f} gio, chia {count} chunk 30 phut")
+        for index in range(count):
+            if index in completed:
+                continue
+            start = max(0.0, index * chunk_seconds - (overlap if index else 0.0))
+            end = min(duration, (index + 1) * chunk_seconds + (overlap if index + 1 < count else 0.0))
+            chunk_path = work_dir / f"chunk_{index:04d}.flac"
+            extracted = subprocess.run(
+                [FFMPEG_PATH, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", str(audio_path), "-c:a", "flac", str(chunk_path)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600,
+            )
+            if extracted.returncode != 0:
+                raise RuntimeError(extracted.stderr[-800:] or "Khong tach duoc audio chunk Whisper.")
+            iterator, _info = model.transcribe(str(chunk_path), vad_filter=True, vad_parameters={"min_silence_duration_ms": 500}, condition_on_previous_text=False, beam_size=5)
+            for segment in iterator:
+                text = str(segment.text or "").strip()
+                global_start = float(segment.start) + start
+                global_end = float(segment.end) + start
+                if text and global_end > global_start and (index == 0 or global_start >= index * chunk_seconds):
+                    combined.append({"start": global_start, "end": global_end, "text": text})
+            completed.add(index)
+            checkpoint.write_text(json.dumps({"completed": sorted(completed), "segments": combined}, ensure_ascii=False), encoding="utf-8")
+            log_callback(f"[SrtProgress] CHUNK {index + 1}/{count}")
+        checkpoint.unlink(missing_ok=True)
+        return {"language": "zh", "segments": sorted(combined, key=lambda item: item["start"])}
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
 def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
     if sys.version_info[:2] != (3, 12) and not os.getenv("BILI2YT_SRT_NATIVE"):
         return _run_srt_native(audio_path, "whisper-v3", log_callback)
@@ -167,6 +213,9 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
     compute_type = "float16" if use_cuda else "int8"
     log_callback(f"Whisper V3: {'GPU CUDA' if use_cuda else 'CPU'}")
     model = WhisperModel("large-v3", device=device, compute_type=compute_type)
+    duration = _audio_duration(audio_path)
+    if duration >= 60 * 60:
+        return _run_whisper_v3_long(audio_path, log_callback, model, duration)
     segments_iter, info = model.transcribe(
         str(audio_path),
         vad_filter=True,
