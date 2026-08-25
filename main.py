@@ -36,7 +36,7 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None):
         create_srt_batch(folder, engine="whisper-v3", log_callback=log_callback)
     if steps.get("translate"):
         log("[AutoStage] Đang dịch Google Translate Web")
-        translate_srt_batch(folder, "en", os.getenv("TRANSLATOR_MODEL", "google-web"),
+        translate_srt_batch(folder, "en", os.getenv("TRANSLATOR_MODEL", "hybrid-qwen-gemini"),
                             os.getenv("QWEN_API_KEY", ""), log_callback=log_callback)
     if steps.get("mux"):
         log("[AutoStage] Đang ghép vocal")
@@ -112,11 +112,11 @@ class TranslateDialog(QDialog):
         layout.addWidget(QLabel("Model dịch:"))
         self.google = QRadioButton("Google Translate Web (miễn phí)"); self.google.setChecked(True); layout.addWidget(self.google)
         self.gemini = QRadioButton("Gemini (cần API key)"); self.gemini.setEnabled(False); layout.addWidget(self.gemini)
-        self.qwen = QRadioButton("Qwen3.7-Plus (cần QWEN_API_KEY)"); layout.addWidget(self.qwen)
         self.qwen38 = QRadioButton("Qwen3.8-Max (cần QWEN_API_KEY)"); layout.addWidget(self.qwen38)
         self.gemini36 = QRadioButton("Gemini 3.6 Flash-High (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini36)
         self.gemini31 = QRadioButton("Gemini 3.1 Flash-Lite (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini31)
         self.hybrid = QRadioButton("Hybrid: Qwen3.8-Max + Gemini sửa chọn lọc"); layout.addWidget(self.hybrid)
+        self.hybrid.setChecked(True)
         if os.getenv("QWEN_MODEL", "qwen3.7-plus").lower() == "qwen3.8-max":
             self.qwen38.setChecked(True)
         if os.getenv("TRANSLATOR_MODEL", "").lower() == "gemini-3.6-flash-high":
@@ -129,8 +129,8 @@ class TranslateDialog(QDialog):
     def values(self):
         model = ("gemini-3.6-flash-high" if self.gemini36.isChecked() else
                  ("gemini-3.1-flash-lite" if self.gemini31.isChecked() else
-                  ("hybrid-qwen-gemini" if self.hybrid.isChecked() else
-                  ("qwen3.8-max" if self.qwen38.isChecked() else ("qwen3.7-plus" if self.qwen.isChecked() else "google-web")))))
+                 ("hybrid-qwen-gemini" if self.hybrid.isChecked() else
+                  ("qwen3.8-max" if self.qwen38.isChecked() else "google-web"))))
         return self.source.currentText(), self.target.currentData(), model
 
 
