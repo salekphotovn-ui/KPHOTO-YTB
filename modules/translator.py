@@ -292,6 +292,7 @@ def _qwen_translate(items: list[dict], source: str, target: str, model: str, api
                     ],
                     "temperature": 0.2,
                     "max_tokens": 8192,
+                    "stream": False,
                 },
                 timeout=(30, 300),
             )
