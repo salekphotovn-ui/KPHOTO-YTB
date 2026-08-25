@@ -288,6 +288,13 @@ class MainWindow(QMainWindow):
             self._last_download_percent = percent
             self.log_view.append(f"[Tách vocal] {percent}%")
             return
+        chunk_match = re.search(r"\[SrtProgress\]\s+CHUNK\s+(\d+)\/(\d+)", text, re.IGNORECASE)
+        if chunk_match:
+            current, total = int(chunk_match.group(1)), max(1, int(chunk_match.group(2)))
+            percent = round(current * 100 / total)
+            self.progress.setValue(percent)
+            self.log_view.append(f"[Whisper V3] {current}/{total} chunk ({percent}%)")
+            return
         elif "[DownloadProgress] DONE" in text:
             self.progress.setValue(100)
             self._last_download_percent = 100
