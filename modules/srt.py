@@ -74,6 +74,10 @@ def _split_whisper_segment(segment, max_seconds: float = 5.5, max_chars: int = 1
             continue
         word_start = float(word.start)
         word_end = float(word.end)
+        # Whisper can occasionally assign a short word an end timestamp tens
+        # of seconds later (usually across silence).  Never let that malformed
+        # word timestamp keep a subtitle visible for the whole gap.
+        word_end = min(word_end, word_start + max_seconds)
         if cue_start is None:
             cue_start = word_start
         cue_end = word_end
@@ -82,12 +86,20 @@ def _split_whisper_segment(segment, max_seconds: float = 5.5, max_chars: int = 1
         duration = cue_end - cue_start
         punctuation_break = token[-1] in _WHISPER_CUE_PUNCTUATION and duration >= 0.15
         if punctuation_break or duration >= max_seconds or len(text) >= max_chars:
-            cues.append({"start": cue_start, "end": cue_end, "text": text})
+            cues.append({
+                "start": cue_start,
+                "end": min(cue_end, cue_start + max_seconds),
+                "text": text,
+            })
             current = []
             cue_start = None
             cue_end = None
     if current and cue_start is not None and cue_end is not None:
-        cues.append({"start": cue_start, "end": cue_end, "text": "".join(current).strip()})
+        cues.append({
+            "start": cue_start,
+            "end": min(cue_end, cue_start + max_seconds),
+            "text": "".join(current).strip(),
+        })
     return [cue for cue in cues if cue["text"] and cue["end"] > cue["start"]]
 
 
