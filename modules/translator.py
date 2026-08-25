@@ -405,14 +405,16 @@ def translate_srt_batch(
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(translate_part, start, end) for start, end in parts]
             completed = 0
+            completed_end = 0
             for future in as_completed(futures):
                 start, end, mapping = future.result()
                 for index, text in mapping.items():
                     if start <= index < end:
                         translated[index] = text
                 completed += 1
-                percent = round(end * 100 / max(1, len(cues)))
-                log(f"[TranslateProgress] {end}/{len(cues)} câu ({completed}/{len(parts)} phần) percent={percent}")
+                completed_end = max(completed_end, end)
+                percent = round(completed_end * 100 / max(1, len(cues)))
+                log(f"[TranslateProgress] {completed_end}/{len(cues)} câu ({completed}/{len(parts)} phần) percent={percent}")
 
         for index, text in enumerate(translated):
             if not text:

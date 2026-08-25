@@ -325,7 +325,10 @@ class MainWindow(QMainWindow):
             percent = max(0, min(100, round(float(match.group(1)))))
             self.progress.setValue(percent)
             if "[TranslateProgress]" in text:
-                self.log_view.append("[Dịch Qwen] " + text.split("[TranslateProgress]", 1)[-1].strip())
+                detail = text.split("[TranslateProgress]", 1)[-1].strip()
+                if detail.upper().startswith("START"):
+                    return
+                self.log_view.append("[Dịch Qwen] " + detail)
                 self.log_view.ensureCursorVisible()
                 return
             # Keep the progress bar live without filling the log with repeats.
@@ -368,7 +371,8 @@ class MainWindow(QMainWindow):
         elif text.startswith("[TranslateProgress]"):
             if text.upper().startswith("[TRANSLATEPROGRESS] START") and self.progress.value() == 0:
                 self.progress.setValue(1)
-            self.log_view.append("[Dịch] " + text.replace("[TranslateProgress]", "", 1).strip())
+            if not text.upper().startswith("[TRANSLATEPROGRESS] START"):
+                self.log_view.append("[Dịch] " + text.replace("[TranslateProgress]", "", 1).strip())
             self.log_view.ensureCursorVisible()
             return
         elif text.startswith("[Separator]") and ("ERROR" not in text.upper() and "FAIL" not in text.upper()):
