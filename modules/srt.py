@@ -14,6 +14,10 @@ from pathlib import Path
 from config import FFMPEG_PATH
 
 
+_WHISPER_MODEL = None
+_WHISPER_MODEL_KEY = None
+
+
 def _format_srt_time(seconds: float) -> str:
     total_ms = max(0, int(round(seconds * 1000)))
     hours, remainder = divmod(total_ms, 3_600_000)
@@ -212,7 +216,15 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
     device = "cuda" if use_cuda else "cpu"
     compute_type = "float16" if use_cuda else "int8"
     log_callback(f"Whisper V3: {'GPU CUDA' if use_cuda else 'CPU'}")
-    model = WhisperModel("large-v3", device=device, compute_type=compute_type)
+    global _WHISPER_MODEL, _WHISPER_MODEL_KEY
+    model_key = (device, compute_type)
+    if _WHISPER_MODEL is None or _WHISPER_MODEL_KEY != model_key:
+        log_callback("Whisper V3: dang nap model large-v3...")
+        _WHISPER_MODEL = WhisperModel("large-v3", device=device, compute_type=compute_type)
+        _WHISPER_MODEL_KEY = model_key
+    else:
+        log_callback("Whisper V3: tai su dung model large-v3 da nap")
+    model = _WHISPER_MODEL
     duration = _audio_duration(audio_path)
     if duration >= 60 * 60:
         return _run_whisper_v3_long(audio_path, log_callback, model, duration)
