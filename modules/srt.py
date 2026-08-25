@@ -52,10 +52,44 @@ def _write_srt(segments: list[dict], output_path: Path) -> None:
 _WHISPER_CUE_PUNCTUATION = set(",，。.!！?？;；:：")
 
 
+def _is_whisper_hallucination(segment, words) -> bool:
+    """Reject short, low-confidence text stretched across non-speech."""
+    text = re.sub(r"\s+", "", str(getattr(segment, "text", "") or ""))
+    text = text.strip("".join(_WHISPER_CUE_PUNCTUATION))
+    if not text or not words:
+        return False
+
+    raw_word_spans = [
+        max(0.0, float(word.end) - float(word.start))
+        for word in words
+    ]
+    longest_span = max(raw_word_spans, default=0.0)
+    no_speech = float(getattr(segment, "no_speech_prob", 0.0) or 0.0)
+    probabilities = [
+        float(word.probability)
+        for word in words
+        if getattr(word, "probability", None) is not None
+    ]
+    mean_probability = sum(probabilities) / len(probabilities) if probabilities else 1.0
+
+    # A 1-4 character phrase cannot genuinely occupy 15+ seconds. This shape
+    # repeatedly appears when Whisper turns music/action noise into one word.
+    if longest_span >= 15.0 and len(text) <= 4:
+        return True
+    # For shorter suspicious spans, require model evidence that speech/text
+    # confidence is weak so real slow dialogue is retained.
+    if longest_span >= 8.0 and len(text) <= 6:
+        if no_speech >= 0.45 or mean_probability <= 0.20:
+            return True
+    return False
+
+
 def _split_whisper_segment(segment, max_seconds: float = 5.5, max_chars: int = 18) -> list[dict]:
     """Build subtitle-sized cues from Whisper word timestamps."""
     words = [word for word in (getattr(segment, "words", None) or [])
              if getattr(word, "start", None) is not None and getattr(word, "end", None) is not None]
+    if _is_whisper_hallucination(segment, words):
+        return []
     if not words:
         text = str(getattr(segment, "text", "") or "").strip()
         start = float(getattr(segment, "start", 0.0) or 0.0)
