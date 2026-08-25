@@ -158,6 +158,8 @@ class PreviewVideoView(QGraphicsView):
 
 
 class DraggableSubtitleProxy(QGraphicsProxyWidget):
+    moved = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self._drag_offset = None
@@ -187,6 +189,7 @@ class DraggableSubtitleProxy(QGraphicsProxyWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._drag_offset is not None:
             self._drag_offset = None
             self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self.moved.emit()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -240,6 +243,7 @@ class MainWindow(QMainWindow):
         self.preview_subtitles = []
         self.preview_subtitle_path = None
         self.preview_video_path = None
+        self._subtitle_user_position = False
         self._preview_loading_frame = False
         self._preview_was_muted = False
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
@@ -300,7 +304,7 @@ class MainWindow(QMainWindow):
         self.video_item.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
         self.video_scene.addItem(self.video_item)
         self.subtitle_label = QLabel("")
-        self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
+        self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.subtitle_label.setWordWrap(True)
         self.subtitle_label.setContentsMargins(8, 0, 8, 0)
         self.subtitle_label.setStyleSheet(
@@ -314,6 +318,7 @@ class MainWindow(QMainWindow):
         self.subtitle_proxy.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.subtitle_proxy.setCursor(Qt.CursorShape.OpenHandCursor)
         self.subtitle_proxy.setToolTip("Giữ chuột và kéo để đổi vị trí phụ đề tiếng Anh")
+        self.subtitle_proxy.moved.connect(self._subtitle_was_moved)
         self.video_view.resized.connect(self._resize_preview_scene)
         preview_layout.addWidget(self.video_view, 1)
         self.audio_output = QAudioOutput(self)
@@ -435,10 +440,12 @@ class MainWindow(QMainWindow):
         self.media_player.stop()
         self._preview_loading_frame = True
         self._preview_was_muted = self.audio_output.isMuted()
+        self._subtitle_user_position = False
         self.preview_video_path = video_path
         self.preview_subtitles = self._load_preview_subtitles(video_path)
         self.subtitle_label.clear()
         self.media_player.setSource(QUrl.fromLocalFile(str(video_path.resolve())))
+        self._resize_preview_scene()
         self.preview_play.setEnabled(True)
         self.preview_play.setText("▶")
         self.preview_timeline.setValue(0)
@@ -452,11 +459,17 @@ class MainWindow(QMainWindow):
         height = max(1, viewport_size.height())
         old_height = self.video_scene.sceneRect().height()
         old_geometry = self.subtitle_proxy.geometry()
-        if old_height > 1 and old_geometry.height() > 1:
+        if self._subtitle_user_position and old_height > 1 and old_geometry.height() > 1:
             subtitle_center_ratio = ((old_geometry.y() + old_geometry.height() / 2) /
                                      old_height)
         else:
-            subtitle_center_ratio = 0.78
+            native_size = self.video_item.nativeSize()
+            native_width = native_size.width() if native_size.width() > 0 else 16
+            native_height = native_size.height() if native_size.height() > 0 else 9
+            display_scale = min(width / native_width, height / native_height)
+            display_height = native_height * display_scale
+            display_top = (height - display_height) / 2
+            subtitle_center_ratio = (display_top + display_height * 0.86) / height
         scene_rect = QRectF(0, 0, width, height)
         self.video_scene.setSceneRect(scene_rect)
         self.video_item.setSize(QSizeF(width, height))
@@ -465,6 +478,9 @@ class MainWindow(QMainWindow):
         subtitle_y = subtitle_center_ratio * height - subtitle_height / 2
         subtitle_y = min(max(0, subtitle_y), height - subtitle_height)
         self.subtitle_proxy.setGeometry(QRectF(35, subtitle_y, subtitle_width, subtitle_height))
+
+    def _subtitle_was_moved(self):
+        self._subtitle_user_position = True
 
     @staticmethod
     def _srt_time_ms(value: str) -> int:
@@ -549,6 +565,7 @@ class MainWindow(QMainWindow):
         if (self._preview_loading_frame
                 and status in (QMediaPlayer.MediaStatus.LoadedMedia,
                                QMediaPlayer.MediaStatus.BufferedMedia)):
+            self._resize_preview_scene()
             self.audio_output.setMuted(True)
             self.media_player.play()
 
