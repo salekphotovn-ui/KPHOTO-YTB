@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
     QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
-    QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene,
+    QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
 )
 
 from modules.separator import separate_folder
@@ -274,11 +274,14 @@ class MainWindow(QMainWindow):
         self.subtitle_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.subtitle_label.setContentsMargins(35, 20, 35, 30)
         self.subtitle_label.setStyleSheet(
-            "QLabel { color:white; background:transparent; font-size:22px; "
-            "font-weight:800; padding:8px; }"
+            "QLabel { color:white; background:rgba(0,0,0,115); border-radius:5px; "
+            "font-size:22px; font-weight:800; padding:8px; }"
         )
         self.subtitle_proxy = self.video_scene.addWidget(self.subtitle_label)
         self.subtitle_proxy.setZValue(10)
+        self.subtitle_proxy.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.subtitle_proxy.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.subtitle_proxy.setToolTip("Giữ chuột và kéo để đổi vị trí phụ đề tiếng Anh")
         self.video_view.resized.connect(self._resize_preview_scene)
         preview_layout.addWidget(self.video_view, 1)
         self.audio_output = QAudioOutput(self)
@@ -411,10 +414,21 @@ class MainWindow(QMainWindow):
         viewport_size = self.video_view.viewport().size()
         width = max(1, viewport_size.width())
         height = max(1, viewport_size.height())
+        old_height = self.video_scene.sceneRect().height()
+        old_geometry = self.subtitle_proxy.geometry()
+        if old_height > 1 and old_geometry.height() > 1:
+            subtitle_center_ratio = ((old_geometry.y() + old_geometry.height() / 2) /
+                                     old_height)
+        else:
+            subtitle_center_ratio = 0.69
         scene_rect = QRectF(0, 0, width, height)
         self.video_scene.setSceneRect(scene_rect)
         self.video_item.setSize(QSizeF(width, height))
-        self.subtitle_proxy.setGeometry(scene_rect)
+        subtitle_height = min(92, max(68, int(height * 0.14)))
+        subtitle_width = max(120, width - 70)
+        subtitle_y = subtitle_center_ratio * height - subtitle_height / 2
+        subtitle_y = min(max(0, subtitle_y), height - subtitle_height)
+        self.subtitle_proxy.setGeometry(QRectF(35, subtitle_y, subtitle_width, subtitle_height))
 
     @staticmethod
     def _srt_time_ms(value: str) -> int:
