@@ -30,6 +30,10 @@ def load_local_provider_config() -> None:
             os.environ.setdefault("QWEN_MODEL", str(data["qwen_model"]))
         if data.get("gemini_api_key"):
             os.environ.setdefault("GEMINI_API_KEY", str(data["gemini_api_key"]))
+        if data.get("gemini31_api_key"):
+            os.environ.setdefault("GEMINI31_API_KEY", str(data["gemini31_api_key"]))
+        if data.get("gemini36_api_key"):
+            os.environ.setdefault("GEMINI36_API_KEY", str(data["gemini36_api_key"]))
 
 # GitHub repository that owns the dedicated V3 releases.
 GITHUB_OWNER = ""

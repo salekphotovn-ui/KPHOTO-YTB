@@ -407,7 +407,7 @@ def translate_srt_batch(
             if model == "hybrid-qwen-gemini":
                 flagged = [item for item in items if re.search(r"[\u4e00-\u9fff]", mapping.get(item["id"], "")) or len(mapping.get(item["id"], "")) > 120]
                 if flagged:
-                    gemini_key = os.getenv("GEMINI_API_KEY", "")
+                    gemini_key = os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", ""))
                     polished = _qwen_translate(flagged[:10], "Chinese", target_name, "gemini-3.6-flash-high", gemini_key)
                     mapping.update(polished)
                     log(f"[TranslateHybrid] Đã sửa chọn lọc {len(polished)} cue")

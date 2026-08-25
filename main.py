@@ -533,8 +533,9 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         source, target, model = dialog.values()
-        api_key = (os.getenv("GEMINI_API_KEY", "") if model.startswith("gemini-") else
-                   (os.getenv("QWEN_API_KEY", "") if model.startswith("qwen") or model == "hybrid-qwen-gemini" else ""))
+        api_key = (os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", "")) if model == "gemini-3.6-flash-high" else
+                   (os.getenv("GEMINI31_API_KEY", os.getenv("GEMINI_API_KEY", "")) if model == "gemini-3.1-flash-lite" else
+                   (os.getenv("QWEN_API_KEY", "") if model.startswith("qwen") or model == "hybrid-qwen-gemini" else "")))
         self.start_task(translate_srt_batch, str(self.root), target, model, api_key, source_language=source)
 
     def mux(self):
