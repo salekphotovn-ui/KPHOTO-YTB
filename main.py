@@ -399,9 +399,6 @@ class MainWindow(QMainWindow):
     def _load_preview_subtitles(self, video_path: Path):
         subtitle_folder = video_path.parent / "subtitles"
         subtitle_path = subtitle_folder / "en.srt"
-        if not subtitle_path.exists() and subtitle_folder.exists():
-            fallbacks = sorted(subtitle_folder.glob("en*.srt"), key=lambda path: path.name.lower())
-            subtitle_path = fallbacks[0] if fallbacks else subtitle_path
         self.preview_subtitle_path = subtitle_path if subtitle_path.exists() else None
         if self.preview_subtitle_path is None:
             return []

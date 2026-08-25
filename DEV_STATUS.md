@@ -21,7 +21,7 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Hybrid dùng hai key riêng trong `config.local.json`: `qwen_api_key` và `gemini36_api_key`.
 - Đã thêm tính chi phí theo model, QA ký tự Trung/cue dài và retry batch để tránh phát sinh request hàng loạt.
 - Đã thêm xem trước video khi chọn phim: phát/tạm dừng, kéo timeline và hiển thị đúng phụ đề `subtitles/en.srt` theo thời gian.
-- Trình xem trước ưu tiên `en.srt` và tương thích tên `en*.srt` trong đúng thư mục phim (ví dụ dữ liệu cũ `en..srt`).
+- Trình xem trước chỉ đọc chính xác `subtitles/en.srt`; các tên sai như `en..srt` bị bỏ qua.
 
 ## Pipeline V3
 
