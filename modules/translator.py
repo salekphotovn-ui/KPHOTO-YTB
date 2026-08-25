@@ -394,9 +394,13 @@ def translate_srt_batch(
                     mapping[index] = retry[index]
             return start, end, mapping
 
-        # Keep concurrency conservative: some marketplace providers return
-        # transient malformed JSON when many requests arrive simultaneously.
-        worker_count = min(3, max(1, len(parts)))
+        # Configurable concurrency: 5 is faster for Vilao while remaining
+        # below the level that previously caused malformed transient responses.
+        try:
+            configured_workers = int(os.getenv("QWEN_WORKERS", "5"))
+        except ValueError:
+            configured_workers = 5
+        worker_count = min(max(1, configured_workers), max(1, len(parts)))
         log(f"[Translate] Chia {len(cues)} câu thành {len(parts)} phần, chạy tối đa {worker_count} luồng")
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(translate_part, start, end) for start, end in parts]
