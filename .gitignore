@@ -8,3 +8,5 @@ download_test_tmp/
 *.log
 *.tmp
 .env
+test_audio/*.wav
+test_audio/*.flac
