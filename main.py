@@ -113,11 +113,14 @@ class TranslateDialog(QDialog):
         self.google = QRadioButton("Google Translate Web (miễn phí)"); self.google.setChecked(True); layout.addWidget(self.google)
         self.gemini = QRadioButton("Gemini (cần API key)"); self.gemini.setEnabled(False); layout.addWidget(self.gemini)
         self.qwen = QRadioButton("Qwen3.7-Plus (cần QWEN_API_KEY)"); layout.addWidget(self.qwen)
+        self.qwen38 = QRadioButton("Qwen3.8-Max (cần QWEN_API_KEY)"); layout.addWidget(self.qwen38)
+        if os.getenv("QWEN_MODEL", "qwen3.7-plus").lower() == "qwen3.8-max":
+            self.qwen38.setChecked(True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
-        model = "qwen3.7-plus" if self.qwen.isChecked() else "google-web"
+        model = "qwen3.8-max" if self.qwen38.isChecked() else ("qwen3.7-plus" if self.qwen.isChecked() else "google-web")
         return self.source.currentText(), self.target.currentData(), model
 
 
@@ -515,7 +518,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         source, target, model = dialog.values()
-        api_key = os.getenv("QWEN_API_KEY", "") if model == "qwen3.7-plus" else ""
+        api_key = os.getenv("QWEN_API_KEY", "") if model.startswith("qwen") else ""
         self.start_task(translate_srt_batch, str(self.root), target, model, api_key, source_language=source)
 
     def mux(self):

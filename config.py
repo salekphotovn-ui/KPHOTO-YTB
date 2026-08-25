@@ -26,6 +26,8 @@ def load_local_provider_config() -> None:
             os.environ.setdefault("QWEN_API_KEY", str(data["qwen_api_key"]))
         if data.get("qwen_base_url"):
             os.environ.setdefault("QWEN_BASE_URL", str(data["qwen_base_url"]))
+        if data.get("qwen_model"):
+            os.environ.setdefault("QWEN_MODEL", str(data["qwen_model"]))
 
 # GitHub repository that owns the dedicated V3 releases.
 GITHUB_OWNER = ""
