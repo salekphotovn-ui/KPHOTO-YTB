@@ -679,6 +679,10 @@ class MainWindow(QMainWindow):
             if percent in (0, 100) or percent % 5 == 0:
                 self.log_view.append(f"[Whisper V3] {percent}%")
             return
+        elif text.startswith("[SrtSource]") or text.startswith("[SrtSync]") or text.startswith("KPHOTO-Local:"):
+            self.log_view.append(text)
+            self.log_view.ensureCursorVisible()
+            return
         elif "[DownloadProgress] DONE" in text:
             self.progress.setValue(100)
             self._last_download_percent = 100

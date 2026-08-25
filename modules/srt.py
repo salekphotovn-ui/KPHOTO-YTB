@@ -16,6 +16,8 @@ from config import FFMPEG_PATH
 
 _WHISPER_MODEL = None
 _WHISPER_MODEL_KEY = None
+_KPHOTO_MODEL = None
+_KPHOTO_MODEL_KEY = None
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".avi", ".webm")
 
 
@@ -72,13 +74,21 @@ def _run_kphoto_local(audio_path: Path, log_callback) -> dict:
     except Exception as exc:
         device = "cpu"
         log_callback(f"KPHOTO-Local: CPU (CUDA khong kha dung: {exc})")
-    model = AutoModel(
-        model=str(model_root / "zh"),
-        vad_model=str(model_root / "v"),
-        punc_model=str(model_root / "p"),
-        device=device,
-        disable_update=True,
-    )
+    global _KPHOTO_MODEL, _KPHOTO_MODEL_KEY
+    model_key = (str(model_root), device)
+    if _KPHOTO_MODEL is None or _KPHOTO_MODEL_KEY != model_key:
+        log_callback("KPHOTO-Local: dang nap model...")
+        _KPHOTO_MODEL = AutoModel(
+            model=str(model_root / "zh"),
+            vad_model=str(model_root / "v"),
+            punc_model=str(model_root / "p"),
+            device=device,
+            disable_update=True,
+        )
+        _KPHOTO_MODEL_KEY = model_key
+    else:
+        log_callback("KPHOTO-Local: tai su dung model da nap")
+    model = _KPHOTO_MODEL
     # KPHOTO is fastest and most stable with its original 300-second batches;
     # larger batches can increase memory pressure without improving throughput.
     batch_size_s = 300
@@ -172,18 +182,18 @@ def _align_segments_to_video_timeline(
 def _run_kphoto_chunked(audio_path: Path, log_callback) -> dict:
     """Transcribe long audio in overlapping chunks and restore global timestamps."""
     duration = _audio_duration(audio_path)
-    # FunASR already performs VAD internally; avoid reloading the large model
-    # for ordinary 1-3 hour videos. Chunk only unusually long audio.
-    if duration <= 3 * 60 * 60:
+    # A single long generate() can stop reporting progress and occasionally
+    # stall in FunASR. Keep each request bounded and reuse the cached model.
+    if duration <= 10 * 60:
         return _run_kphoto_local(audio_path, log_callback)
 
-    chunk_seconds = 60 * 60 if duration <= 6 * 60 * 60 else 30 * 60
+    chunk_seconds = 10 * 60
     overlap = 2.0
     chunk_count = max(1, int((duration + chunk_seconds - 1) // chunk_seconds))
     work_dir = Path(tempfile.mkdtemp(prefix="bili2yt_srt_", dir=str(audio_path.parent)))
     combined = []
     try:
-        log_callback(f"KPHOTO-Local: chia {duration / 3600:.2f} gio thanh {chunk_count} doan ({chunk_seconds // 60} phut).")
+        log_callback(f"KPHOTO-Local: chia {duration / 60:.1f} phut thanh {chunk_count} doan ({chunk_seconds // 60} phut).")
         for index in range(chunk_count):
             start = max(0.0, index * chunk_seconds - (overlap if index else 0.0))
             length = min(duration - start, chunk_seconds + (overlap if index and index + 1 < chunk_count else 0.0))
@@ -423,7 +433,7 @@ def create_srt_batch(
             else:
                 audio_path = source_path
             if engine == "kphoto-local":
-                transcript = _run_kphoto_local(audio_path, log_callback)
+                transcript = _run_kphoto_chunked(audio_path, log_callback)
             else:
                 transcript = _run_whisper_v3(audio_path, log_callback)
             segments = transcript.get("segments", [])
