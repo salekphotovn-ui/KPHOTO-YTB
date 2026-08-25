@@ -64,6 +64,11 @@ def _is_whisper_hallucination(segment, words) -> bool:
         for word in words
     ]
     longest_span = max(raw_word_spans, default=0.0)
+    inter_word_gaps = [
+        max(0.0, float(current.start) - float(previous.end))
+        for previous, current in zip(words, words[1:])
+    ]
+    longest_gap = max(inter_word_gaps, default=0.0)
     no_speech = float(getattr(segment, "no_speech_prob", 0.0) or 0.0)
     probabilities = [
         float(word.probability)
@@ -75,6 +80,10 @@ def _is_whisper_hallucination(segment, words) -> bool:
     # A 1-4 character phrase cannot genuinely occupy 15+ seconds. This shape
     # repeatedly appears when Whisper turns music/action noise into one word.
     if longest_span >= 15.0 and len(text) <= 4:
+        return True
+    # Whisper can also make a fake phrase from two short tokens separated by
+    # a very long silent/action interval (for example 多 ... 74s ... 年).
+    if longest_gap >= 8.0 and len(text) <= 6:
         return True
     # For shorter suspicious spans, require model evidence that speech/text
     # confidence is weak so real slow dialogue is retained.
