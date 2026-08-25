@@ -419,13 +419,15 @@ def translate_srt_batch(
             # Only repair a small number of missing cues individually. Larger
             # failures are left as source text to avoid runaway API cost.
             for index in missing[:3]:
-                retry_fn = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite") else _gemini_translate
+                retry_fn = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini") else _gemini_translate
+                retry_api_key = os.getenv("GEMINI_API_KEY", "") if model == "hybrid-qwen-gemini" else api_key
+                retry_model_name = "gemini-3.6-flash-high" if model == "hybrid-qwen-gemini" else (model if retry_fn is _qwen_translate else repair_model)
                 retry = retry_fn(
                     [{"id": index, "text": cues[index]["text"]}],
                     "Chinese",
                     target_name,
-                    repair_model,
-                    api_key,
+                    retry_model_name,
+                    retry_api_key,
                 )
                 if retry.get(index):
                     mapping[index] = retry[index]
@@ -470,7 +472,7 @@ def translate_srt_batch(
             with _QWEN_USAGE_LOCK:
                 usage_snapshot = dict(_QWEN_USAGE)
             log(
-                f"[TranslateCost] Qwen {film_name}: input={usage_snapshot['input']:,} token, "
+                f"[TranslateCost] {model} {film_name}: input={usage_snapshot['input']:,} token, "
                 f"output={usage_snapshot['output']:,} token, requests={usage_snapshot['requests']}, "
                 f"tam tinh={_qwen_cost_vnd():,.0f} VND"
             )
@@ -478,7 +480,7 @@ def translate_srt_batch(
         with _QWEN_USAGE_LOCK:
             total = _qwen_cost_vnd()
             reqs = _QWEN_USAGE["requests"]
-        log(f"[TranslateCost] TỔNG PHIÊN: {total:,.0f} VND ({reqs} requests; tối thiểu {_QWEN_PRICING['minimum']} VND/request)")
+        log(f"[TranslateCost] {model} TỔNG PHIÊN: {total:,.0f} VND ({reqs} requests; tối thiểu {_QWEN_PRICING['minimum']} VND/request)")
     return results
 
 
