@@ -94,6 +94,29 @@ class SrtModelDialog(QDialog):
         return "kphoto-local" if self.kphoto.isChecked() else "whisper-v3"
 
 
+class TranslateDialog(QDialog):
+    def __init__(self, languages: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Dịch phụ đề")
+        self.resize(520, 360)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Chọn ngôn ngữ nguồn:"))
+        self.source = QComboBox(); self.source.addItems(languages); layout.addWidget(self.source)
+        layout.addWidget(QLabel("Chọn ngôn ngữ đầu ra:"))
+        self.target = QComboBox()
+        for code, label in (("en", "English"), ("vi", "Vietnamese"), ("ja", "Japanese"), ("ko", "Korean"), ("th", "Thai")):
+            self.target.addItem(label, code)
+        layout.addWidget(self.target)
+        layout.addWidget(QLabel("Model dịch:"))
+        self.google = QRadioButton("Google Translate Web (miễn phí)"); self.google.setChecked(True); layout.addWidget(self.google)
+        self.gemini = QRadioButton("Gemini (cần API key)"); self.gemini.setEnabled(False); layout.addWidget(self.gemini)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
+
+    def values(self):
+        return self.source.currentText(), self.target.currentData(), "google-web"
+
+
 class TaskWorker(QObject):
     log = pyqtSignal(str)
     done = pyqtSignal(object)
@@ -463,7 +486,18 @@ class MainWindow(QMainWindow):
         self.start_task(create_srt_batch, str(self.root), dialog.value())
 
     def translate(self):
-        self.start_task(translate_srt_batch, str(self.root), "en", "google-web", "")
+        if self.root == Path.cwd() or not self.root.exists():
+            QMessageBox.warning(self, "Chưa chọn thư mục", "Hãy chọn thư mục tổng trước khi dịch sub.")
+            return
+        languages = sorted({path.stem.lower() for path in self.root.rglob("*.srt") if path.stem and path.stem.isalpha()})
+        if not languages:
+            QMessageBox.warning(self, "Không có SRT", "Không tìm thấy file SRT trong thư mục đã chọn.")
+            return
+        dialog = TranslateDialog(languages, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        source, target, model = dialog.values()
+        self.start_task(translate_srt_batch, str(self.root), target, model, "", source_language=source)
 
     def mux(self):
         self.start_task(mux_folder, str(self.root))

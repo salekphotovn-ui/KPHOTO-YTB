@@ -259,6 +259,7 @@ def translate_srt_batch(
     model: str = TRANSLATOR_MODEL,
     api_key: str = "",
     log_callback=None,
+    source_language: str = "zh",
 ) -> list[str]:
     # Google Web is the free, reliable default. Gemini remains available when
     # explicitly selected from the UI.
@@ -270,8 +271,9 @@ def translate_srt_batch(
 
     root = Path(root_path)
     results = []
+    source_language = str(source_language or "zh").strip().lower()
     source_files = sorted(
-        (path for path in root.rglob("*.srt") if path.name.lower() == "zh.srt"),
+        (path for path in root.rglob("*.srt") if path.stem.lower() == source_language),
         key=lambda path: str(path).casefold(),
     )
     if not source_files:
