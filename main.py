@@ -175,6 +175,12 @@ class MainWindow(QMainWindow):
             QListWidget, QTextEdit { background: #050505; border: none; }
             QListWidget::item { color: #ffd84d; padding: 5px 7px; border-bottom: 1px solid #292929; }
             QTextEdit { color: #ffd84d; font-family: Consolas; font-size: 14px; font-weight: 700; }
+            QRadioButton { spacing: 9px; font-size: 14px; font-weight: 700; padding: 4px; }
+            QRadioButton::indicator { width: 18px; height: 18px; border-radius: 9px; border: 2px solid #aaaaaa; background: #050505; }
+            QRadioButton::indicator:hover { border-color: #ffffff; }
+            QRadioButton::indicator:checked { background: #ffffff; border: 2px solid #ffffff; }
+            QRadioButton:disabled { color: #777777; }
+            QRadioButton::indicator:disabled { border-color: #555555; background: #151515; }
         """)
         brand = QLabel("Bili2YT"); brand.setObjectName("brand")
         eyebrow = QLabel("VIDEO WORKSPACE / V3"); eyebrow.setObjectName("eyebrow")
