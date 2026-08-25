@@ -9,7 +9,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
-    QDialogButtonBox, QComboBox, QProgressBar,
+    QDialogButtonBox, QComboBox, QProgressBar, QCheckBox,
 )
 
 from modules.separator import separate_folder
@@ -22,28 +22,52 @@ from modules.rename import auto_rename_folder
 from modules.concat import concat_videos
 
 
-def run_auto_pipeline(folder: str, log_callback=None):
+def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None):
     def log(message):
         if log_callback:
             log_callback(message)
 
-    log("[AutoStage] Đang tách vocal")
-    separate_folder(folder, log_callback=log_callback)
-    log("[AutoStage] Đang tạo SRT Whisper V3")
-    create_srt_batch(folder, engine="whisper-v3", log_callback=log_callback)
-    log("[AutoStage] Đang dịch Google Translate Web")
-    translate_srt_batch(folder, "en", "google-web", "", log_callback=log_callback)
-    log("[AutoStage] Đang ghép vocal")
-    mux_folder(folder, log_callback=log_callback)
-    log("[AutoStage] Đã ghép vocal xong - dừng trước bước xuất video")
+    if steps.get("separate"):
+        log("[AutoStage] Đang tách vocal")
+        separate_folder(folder, log_callback=log_callback)
+    if steps.get("srt"):
+        log("[AutoStage] Đang tạo SRT Whisper V3")
+        create_srt_batch(folder, engine="whisper-v3", log_callback=log_callback)
+    if steps.get("translate"):
+        log("[AutoStage] Đang dịch Google Translate Web")
+        translate_srt_batch(folder, "en", "google-web", "", log_callback=log_callback)
+    if steps.get("mux"):
+        log("[AutoStage] Đang ghép vocal")
+        mux_folder(folder, log_callback=log_callback)
+    if steps.get("export"):
+        log("[AutoStage] Đang xuất video")
+        return export_folder(folder, log_callback=log_callback)
+    log("[AutoStage] Đã hoàn tất các bước được chọn")
     return folder
 
 
-def run_download_and_auto_pipeline(folder: str, urls: list[str], dfn_priority: str, log_callback=None):
+def run_download_and_auto_pipeline(folder: str, urls: list[str], dfn_priority: str, steps: dict[str, bool], log_callback=None):
     if log_callback:
         log_callback(f"[AutoStage] Đang tải {len(urls)} link")
     download_multiple(urls, dfn_priority=dfn_priority, output_dir=folder, log_callback=log_callback)
-    return run_auto_pipeline(folder, log_callback=log_callback)
+    return run_auto_pipeline(folder, steps, log_callback=log_callback)
+
+
+class AutoProcessDialog(QDialog):
+    def __init__(self, has_pending_download=False, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Chọn quy trình tự động")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Chọn các bước muốn chạy (mặc định đã chọn hết):"))
+        self.checks = {}
+        items = [("download", "Tải video (link đã nhập)"), ("separate", "Tách vocal"), ("srt", "Tạo SRT bằng Whisper V3"), ("translate", "Dịch phụ đề bằng Google Web"), ("mux", "Ghép vocal"), ("export", "Xuất video")]
+        for key, label in items:
+            check = QCheckBox(label); check.setChecked(True); check.setEnabled(key != "download" or has_pending_download); self.checks[key] = check; layout.addWidget(check)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
+
+    def values(self):
+        return {key: check.isChecked() for key, check in self.checks.items()}
 
 
 class TaskWorker(QObject):
@@ -323,13 +347,20 @@ class MainWindow(QMainWindow):
         self.start_task(concat_videos, files)
 
     def auto_run(self):
+        dialog = AutoProcessDialog(bool(self.pending_download_links), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        steps = dialog.values()
         if self.pending_download_links:
             urls = self.pending_download_links
             dfn = self.pending_download_dfn
-            self.pending_download_links = []
-            self.start_task(run_download_and_auto_pipeline, str(self.root), urls, dfn)
+            if steps.get("download"):
+                self.pending_download_links = []
+                self.start_task(run_download_and_auto_pipeline, str(self.root), urls, dfn, steps)
+            else:
+                self.start_task(run_auto_pipeline, str(self.root), steps)
             return
-        self.start_task(run_auto_pipeline, str(self.root))
+        self.start_task(run_auto_pipeline, str(self.root), steps)
 
     def create_srt(self):
         self.start_task(create_srt_batch, str(self.root), "whisper-v3")
