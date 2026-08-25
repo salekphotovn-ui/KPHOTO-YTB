@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
     QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
     QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
-    QGraphicsProxyWidget,
+    QGraphicsProxyWidget, QButtonGroup,
 )
 
 from modules.separator import separate_folder
@@ -93,11 +93,25 @@ class SrtModelDialog(QDialog):
         if not kphoto_available:
             self.kphoto.setToolTip("Chưa có model KPHOTO-Local trong Bili2YT_V3/models")
         layout.addWidget(self.kphoto)
+        self.engine_group = QButtonGroup(self)
+        self.engine_group.addButton(self.whisper)
+        self.engine_group.addButton(self.kphoto)
+        layout.addWidget(QLabel("Chọn nguồn âm thanh:"))
+        self.original_audio = QRadioButton("Âm thanh gốc từ video MP4 (đúng timeline)")
+        self.original_audio.setChecked(True)
+        layout.addWidget(self.original_audio)
+        self.vocal_audio = QRadioButton("File (Vocals) đã tách (ít nhạc nền hơn)")
+        layout.addWidget(self.vocal_audio)
+        self.source_group = QButtonGroup(self)
+        self.source_group.addButton(self.original_audio)
+        self.source_group.addButton(self.vocal_audio)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
-    def value(self):
-        return "kphoto-local" if self.kphoto.isChecked() else "whisper-v3"
+    def values(self):
+        engine = "kphoto-local" if self.kphoto.isChecked() else "whisper-v3"
+        source_mode = "original" if self.original_audio.isChecked() else "vocals"
+        return engine, source_mode
 
 
 class TranslateDialog(QDialog):
@@ -830,7 +844,8 @@ class MainWindow(QMainWindow):
         dialog = SrtModelDialog(kphoto, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self.start_task(create_srt_batch, str(self.root), dialog.value())
+        engine, source_mode = dialog.values()
+        self.start_task(create_srt_batch, str(self.root), engine, source_mode)
 
     def translate(self):
         if self.root == Path.cwd() or not self.root.exists():

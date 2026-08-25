@@ -357,30 +357,82 @@ def _find_vocal_files(folder: Path) -> list[Path]:
     )
 
 
-def create_srt_batch(root_path: str, engine: str = "kphoto-local", log_callback=print) -> list[str]:
-    root = Path(root_path)
-    folders = sorted(
-        [root, *[path for path in root.rglob("*") if path.is_dir()]],
-        key=lambda path: str(path.relative_to(root)).casefold(),
+def _find_source_videos(root: Path) -> list[Path]:
+    return sorted(
+        (
+            path for path in root.rglob("*")
+            if path.is_file()
+            and path.suffix.casefold() in VIDEO_EXTENSIONS
+            and not path.stem.casefold().endswith(("_export", "_da_ghep_vocal"))
+        ),
+        key=lambda path: str(path).casefold(),
     )
-    vocal_files = [path for folder in folders for path in _find_vocal_files(folder)]
-    log_callback(f"[SrtProgress] START total={len(vocal_files)}")
+
+
+def _extract_original_audio(video_path: Path, log_callback) -> tuple[Path, Path]:
+    work_dir = Path(tempfile.mkdtemp(prefix=".bili2yt_original_audio_", dir=str(video_path.parent)))
+    audio_path = work_dir / f"{video_path.stem}.flac"
+    log_callback(f"[SrtSource] Dang trich audio goc: {video_path.name}")
+    result = subprocess.run(
+        [
+            FFMPEG_PATH, "-hide_banner", "-loglevel", "error", "-y",
+            "-i", str(video_path), "-map", "0:a:0", "-vn",
+            "-af", "aresample=async=1000:first_pts=0",
+            "-ac", "1", "-ar", "16000", "-c:a", "flac", str(audio_path),
+        ],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=7200,
+    )
+    if result.returncode != 0 or not audio_path.is_file() or audio_path.stat().st_size == 0:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        raise RuntimeError(result.stderr[-1000:] or f"Khong trich duoc audio tu {video_path.name}.")
+    video_duration = _audio_duration(video_path)
+    audio_duration = _audio_duration(audio_path)
+    log_callback(
+        f"[SrtSource] Audio goc san sang: {audio_duration:.3f}s / video {video_duration:.3f}s"
+    )
+    return audio_path, work_dir
+
+
+def create_srt_batch(
+    root_path: str, engine: str = "kphoto-local", source_mode: str = "vocals",
+    log_callback=print,
+) -> list[str]:
+    root = Path(root_path)
+    source_mode = str(source_mode or "vocals").strip().lower()
+    if source_mode == "original":
+        sources = _find_source_videos(root)
+    else:
+        folders = sorted(
+            [root, *[path for path in root.rglob("*") if path.is_dir()]],
+            key=lambda path: str(path.relative_to(root)).casefold(),
+        )
+        sources = [path for folder in folders for path in _find_vocal_files(folder)]
+    log_callback(f"[SrtProgress] START total={len(sources)} source={source_mode}")
     results = []
-    for index, vocal_path in enumerate(vocal_files, 1):
-        folder = vocal_path.parent
+    for index, source_path in enumerate(sources, 1):
+        folder = source_path.parent
         subtitle_dir = folder / "subtitles"
         subtitle_dir.mkdir(parents=True, exist_ok=True)
-        base_name = re.sub(r"[\s_-]*\(Vocals\)$", "", vocal_path.stem, flags=re.IGNORECASE)
-        log_callback(f"[SrtProgress] ITEM {index}/{len(vocal_files)} {vocal_path.name}")
+        base_name = (source_path.stem if source_mode == "original" else
+                     re.sub(r"[\s_-]*\(Vocals\)$", "", source_path.stem, flags=re.IGNORECASE))
+        log_callback(f"[SrtProgress] ITEM {index}/{len(sources)} {source_path.name}")
+        work_dir = None
         try:
-            if engine == "kphoto-local":
-                transcript = _run_kphoto_local(vocal_path, log_callback)
+            if source_mode == "original":
+                audio_path, work_dir = _extract_original_audio(source_path, log_callback)
             else:
-                transcript = _run_whisper_v3(vocal_path, log_callback)
+                audio_path = source_path
+            if engine == "kphoto-local":
+                transcript = _run_kphoto_local(audio_path, log_callback)
+            else:
+                transcript = _run_whisper_v3(audio_path, log_callback)
             segments = transcript.get("segments", [])
             if not segments:
                 raise RuntimeError("Khong nhan dang duoc cau thoai.")
-            segments = _align_segments_to_video_timeline(segments, vocal_path, log_callback)
+            if source_mode == "original":
+                log_callback("[SrtSync] Dung timeline audio goc cua video, khong can co timestamp.")
+            else:
+                segments = _align_segments_to_video_timeline(segments, source_path, log_callback)
             language = str(
                 transcript.get("language") or ("zh" if engine == "kphoto-local" else "auto")
             )
@@ -393,7 +445,10 @@ def create_srt_batch(root_path: str, engine: str = "kphoto-local", log_callback=
                 raise RuntimeError(f"Khong ghi duoc file SRT: {output_path}")
             results.append(str(output_path))
             log_callback(f"[SrtProgress] OUTPUT {output_path}")
-            log_callback(f"[SrtProgress] DONE {index}/{len(vocal_files)}")
+            log_callback(f"[SrtProgress] DONE {index}/{len(sources)}")
         except Exception as exc:
-            log_callback(f"[SrtProgress] FAIL {index}/{len(vocal_files)} {vocal_path.name}: {exc}")
+            log_callback(f"[SrtProgress] FAIL {index}/{len(sources)} {source_path.name}: {exc}")
+        finally:
+            if work_dir is not None:
+                shutil.rmtree(work_dir, ignore_errors=True)
     return results

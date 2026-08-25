@@ -31,6 +31,7 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Trước khi xuất, preview giải phóng file media; exporter chỉ tạo `_Export.mp4` và luôn giữ video nguồn, vocal, SRT để tránh WinError 32 và mất dữ liệu.
 - Sub xem trước được đồng bộ theo timer 50 ms; thao tác kéo dùng proxy chuột riêng để hoạt động ổn định trên Windows.
 - Bước tạo SRT tự đo thời lượng video/vocal và co timestamp theo tỷ lệ để loại bỏ drift tích lũy do WAV vocal dài hơn nguồn.
+- Hộp Tạo SRT cho chọn nguồn MP4 gốc hoặc file `(Vocals)`; cả Whisper V3 và KPHOTO-Local dùng được FLAC mono 16 kHz, với `aresample=async` khóa audio gốc theo PTS video.
 - Nếu bấm chức năng khác khi worker đang hoàn tất, V3 xếp một tác vụ chờ và tự chạy sau khi thread hiện tại đóng thay vì báo lỗi chung.
 
 ## Pipeline V3
