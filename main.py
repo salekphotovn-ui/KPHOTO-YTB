@@ -272,10 +272,10 @@ class MainWindow(QMainWindow):
         self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
         self.subtitle_label.setWordWrap(True)
         self.subtitle_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.subtitle_label.setContentsMargins(35, 20, 35, 30)
+        self.subtitle_label.setContentsMargins(8, 0, 8, 0)
         self.subtitle_label.setStyleSheet(
-            "QLabel { color:white; background:rgba(0,0,0,115); border-radius:5px; "
-            "font-size:22px; font-weight:800; padding:8px; }"
+            "QLabel { color:white; background:transparent; border:none; "
+            "font-size:22px; font-weight:800; padding:2px; }"
         )
         self.subtitle_proxy = self.video_scene.addWidget(self.subtitle_label)
         self.subtitle_proxy.setZValue(10)
@@ -420,11 +420,11 @@ class MainWindow(QMainWindow):
             subtitle_center_ratio = ((old_geometry.y() + old_geometry.height() / 2) /
                                      old_height)
         else:
-            subtitle_center_ratio = 0.69
+            subtitle_center_ratio = 0.78
         scene_rect = QRectF(0, 0, width, height)
         self.video_scene.setSceneRect(scene_rect)
         self.video_item.setSize(QSizeF(width, height))
-        subtitle_height = min(92, max(68, int(height * 0.14)))
+        subtitle_height = min(72, max(54, int(height * 0.10)))
         subtitle_width = max(120, width - 70)
         subtitle_y = subtitle_center_ratio * height - subtitle_height / 2
         subtitle_y = min(max(0, subtitle_y), height - subtitle_height)
