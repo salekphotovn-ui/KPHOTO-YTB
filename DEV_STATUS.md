@@ -33,6 +33,7 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Bước tạo SRT tự đo thời lượng video/vocal và co timestamp theo tỷ lệ để loại bỏ drift tích lũy do WAV vocal dài hơn nguồn.
 - Hộp Tạo SRT cho chọn nguồn MP4 gốc hoặc file `(Vocals)`; cả Whisper V3 và KPHOTO-Local dùng được FLAC mono 16 kHz, với `aresample=async` khóa audio gốc theo PTS video.
 - KPHOTO dùng chunk 10 phút cho audio dài, cache model CUDA giữa các chunk và hiển thị log nguồn/model/tiến độ để tránh `generate()` 33 phút đứng im.
+- Whisper V3 ép `zh`, bật word timestamps và chống hallucination; cue được chia theo dấu câu, tối đa khoảng 5,5 giây/18 ký tự để loại cue treo 15-74 giây.
 - Nếu bấm chức năng khác khi worker đang hoàn tất, V3 xếp một tác vụ chờ và tự chạy sau khi thread hiện tại đóng thay vì báo lỗi chung.
 
 ## Pipeline V3

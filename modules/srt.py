@@ -49,6 +49,65 @@ def _write_srt(segments: list[dict], output_path: Path) -> None:
             index += 1
 
 
+_WHISPER_CUE_PUNCTUATION = set(",，。.!！?？;；:：")
+
+
+def _split_whisper_segment(segment, max_seconds: float = 5.5, max_chars: int = 18) -> list[dict]:
+    """Build subtitle-sized cues from Whisper word timestamps."""
+    words = [word for word in (getattr(segment, "words", None) or [])
+             if getattr(word, "start", None) is not None and getattr(word, "end", None) is not None]
+    if not words:
+        text = str(getattr(segment, "text", "") or "").strip()
+        start = float(getattr(segment, "start", 0.0) or 0.0)
+        end = float(getattr(segment, "end", start) or start)
+        # Never leave a short hallucinated phrase visible for tens of seconds.
+        return ([{"start": start, "end": min(end, start + max_seconds), "text": text}]
+                if text and end > start else [])
+
+    cues = []
+    current = []
+    cue_start = None
+    cue_end = None
+    for word in words:
+        token = str(getattr(word, "word", "") or "").strip()
+        if not token:
+            continue
+        word_start = float(word.start)
+        word_end = float(word.end)
+        if cue_start is None:
+            cue_start = word_start
+        cue_end = word_end
+        current.append(token)
+        text = "".join(current).strip()
+        duration = cue_end - cue_start
+        punctuation_break = token[-1] in _WHISPER_CUE_PUNCTUATION and duration >= 0.15
+        if punctuation_break or duration >= max_seconds or len(text) >= max_chars:
+            cues.append({"start": cue_start, "end": cue_end, "text": text})
+            current = []
+            cue_start = None
+            cue_end = None
+    if current and cue_start is not None and cue_end is not None:
+        cues.append({"start": cue_start, "end": cue_end, "text": "".join(current).strip()})
+    return [cue for cue in cues if cue["text"] and cue["end"] > cue["start"]]
+
+
+def _whisper_transcribe_options() -> dict:
+    return {
+        "language": "zh",
+        "task": "transcribe",
+        "vad_filter": True,
+        "vad_parameters": {
+            "threshold": 0.5,
+            "min_silence_duration_ms": 250,
+            "speech_pad_ms": 120,
+        },
+        "condition_on_previous_text": False,
+        "beam_size": 5,
+        "word_timestamps": True,
+        "hallucination_silence_threshold": 1.5,
+    }
+
+
 def _run_kphoto_local(audio_path: Path, log_callback) -> dict:
     # The UI currently runs on Python 3.11 while the bundled ML packages are
     # installed for Python 3.12. Run model loading in the matching interpreter.
@@ -248,13 +307,14 @@ def _run_whisper_v3_long(audio_path: Path, log_callback, model, duration: float)
             )
             if extracted.returncode != 0:
                 raise RuntimeError(extracted.stderr[-800:] or "Khong tach duoc audio chunk Whisper.")
-            iterator, _info = model.transcribe(str(chunk_path), vad_filter=True, vad_parameters={"min_silence_duration_ms": 500}, condition_on_previous_text=False, beam_size=5)
+            iterator, _info = model.transcribe(str(chunk_path), **_whisper_transcribe_options())
             for segment in iterator:
-                text = str(segment.text or "").strip()
-                global_start = float(segment.start) + start
-                global_end = float(segment.end) + start
-                if text and global_end > global_start and (index == 0 or global_start >= index * chunk_seconds):
-                    combined.append({"start": global_start, "end": global_end, "text": text})
+                for local_cue in _split_whisper_segment(segment):
+                    item = dict(local_cue)
+                    item["start"] = float(item["start"]) + start
+                    item["end"] = float(item["end"]) + start
+                    if index == 0 or item["start"] >= index * chunk_seconds:
+                        combined.append(item)
             completed.add(index)
             checkpoint.write_text(json.dumps({"completed": sorted(completed), "segments": combined}, ensure_ascii=False), encoding="utf-8")
             log_callback(f"[SrtProgress] CHUNK {index + 1}/{count}")
@@ -289,26 +349,20 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
     duration = _audio_duration(audio_path)
     if duration >= 60 * 60:
         return _run_whisper_v3_long(audio_path, log_callback, model, duration)
-    segments_iter, info = model.transcribe(
-        str(audio_path),
-        vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
-        condition_on_previous_text=False,
-        beam_size=5,
-    )
+    segments_iter, info = model.transcribe(str(audio_path), **_whisper_transcribe_options())
     segments = []
     segment_count = 0
     last_percent = -1
     duration = max(0.0, _audio_duration(audio_path))
     for segment in segments_iter:
-        text = str(segment.text or "").strip()
-        if text and segment.end > segment.start:
-            segments.append({"start": segment.start, "end": segment.end, "text": text})
+        split_cues = _split_whisper_segment(segment)
+        for cue in split_cues:
+            segments.append(cue)
             segment_count += 1
             if segment_count == 1 or segment_count % 10 == 0:
-                log_callback(f"[SrtProgress] Whisper đã nhận dạng {segment_count} đoạn, đến {segment.end:.1f}s")
+                log_callback(f"[SrtProgress] Whisper đã nhận dạng {segment_count} đoạn, đến {cue['end']:.1f}s")
             if duration > 0:
-                percent = max(0, min(99, int(float(segment.end) * 100 / duration)))
+                percent = max(0, min(99, int(float(cue["end"]) * 100 / duration)))
                 if percent >= last_percent + 5:
                     last_percent = percent
                     log_callback(f"[SrtProgress] WHISPER_PERCENT {percent}")
