@@ -35,8 +35,8 @@ def run_auto_pipeline(folder: str, log_callback=None):
     translate_srt_batch(folder, "en", "google-web", "", log_callback=log_callback)
     log("[AutoStage] Đang ghép vocal")
     mux_folder(folder, log_callback=log_callback)
-    log("[AutoStage] Đang xuất video")
-    return export_folder(folder, log_callback=log_callback)
+    log("[AutoStage] Đã ghép vocal xong - dừng trước bước xuất video")
+    return folder
 
 
 def run_download_and_auto_pipeline(folder: str, urls: list[str], dfn_priority: str, log_callback=None):
