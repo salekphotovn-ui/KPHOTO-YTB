@@ -392,6 +392,7 @@ class MainWindow(QMainWindow):
             (r"\[SrtProgress\]\s+DONE\s+\d+/\d+\s+(.+)$", "Đã xử lý xong: {}"),
             (r"\[Translate\]\s+FILM\s+(.+?)\s+total=", "Đang xử lý: {}"),
             (r"\[Translate\]\s+FILM_DONE\s+(.+?)\s+output=", "Đã xử lý xong: {}"),
+            (r"\[Translate\]\s+Chia\s+(.+)$", "Dịch: {}"),
             (r"\[MuxProgress\]\s+VIDEO_START\s+(.+)$", "Đang xử lý: {}"),
             (r"\[ExportProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang xử lý: {}"),
             (r"\[ExportProgress\]\s+DONE\s+\d+/\d+", "Đã xử lý xong video"),
