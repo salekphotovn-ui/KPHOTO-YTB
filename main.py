@@ -277,10 +277,23 @@ class MainWindow(QMainWindow):
                 return
             self._last_download_percent = percent
             return
+        separator_match = re.search(r"\[Separator\].*?\s(\d{1,3})%\s*\|", text, re.IGNORECASE)
+        if separator_match:
+            percent = max(0, min(100, int(separator_match.group(1))))
+            self.progress.setValue(percent)
+            if percent != 0 and percent % 5 != 0:
+                return
+            if percent == self._last_download_percent:
+                return
+            self._last_download_percent = percent
+            self.log_view.append(f"[Tách vocal] {percent}%")
+            return
         elif "[DownloadProgress] DONE" in text:
             self.progress.setValue(100)
             self._last_download_percent = 100
         elif text.startswith("[BBDown]") or "[DownloadProgress] START" in text:
+            return
+        elif text.startswith("[Separator]") and ("ERROR" not in text.upper() and "FAIL" not in text.upper()):
             return
         self.log_view.append(text)
         self.log_view.ensureCursorVisible()
@@ -305,6 +318,8 @@ class MainWindow(QMainWindow):
         self.thread.finished.connect(self._task_thread_finished)
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
+        self.progress.setValue(0)
+        self._last_download_percent = None
         self.status.setText("Đang xử lý...")
 
     def _task_thread_finished(self):
