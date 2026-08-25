@@ -283,8 +283,15 @@ def _qwen_translate(items: list[dict], source: str, target: str, model: str, api
             response = requests.post(
                 f"{base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": model, "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.2, "response_format": {"type": "json_object"}},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": "You are a professional native English subtitle translator."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 8192,
+                },
                 timeout=(30, 300),
             )
             if response.ok:
