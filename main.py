@@ -853,6 +853,9 @@ class MainWindow(QMainWindow):
         self.start_task(mux_folder, str(self.root))
 
     def export(self):
+        self.media_player.stop()
+        self.media_player.setSource(QUrl())
+        self.preview_play.setText("▶")
         configs = {path: dict(config) for path, config in self.overlay_configs.items()}
         self.start_task(export_folder, str(self.root), overlay_configs=configs)
 

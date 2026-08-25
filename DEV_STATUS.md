@@ -28,6 +28,7 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Sub tiếng Anh không có nền, mặc định nằm sát phía trên sub Trung đã cháy vào hình và có thể giữ chuột kéo trực tiếp để đổi vị trí.
 - Vị trí mặc định được tính theo vùng hình 16:9 thực tế (86% chiều cao), không theo vùng letterbox đen; chọn phim khác sẽ đặt lại vị trí chuẩn.
 - Vị trí sub kéo trên preview được lưu theo từng video dưới dạng tỷ lệ khung hình và truyền vào FFmpeg khi xuất; `overlay_configs` cũng là nguồn chung cho Blur/Logo.
+- Trước khi xuất, preview giải phóng file media; exporter chỉ tạo `_Export.mp4` và luôn giữ video nguồn, vocal, SRT để tránh WinError 32 và mất dữ liệu.
 - Sub xem trước được đồng bộ theo timer 50 ms; thao tác kéo dùng proxy chuột riêng để hoạt động ổn định trên Windows.
 - Bước tạo SRT tự đo thời lượng video/vocal và co timestamp theo tỷ lệ để loại bỏ drift tích lũy do WAV vocal dài hơn nguồn.
 - Nếu bấm chức năng khác khi worker đang hoàn tất, V3 xếp một tác vụ chờ và tự chạy sau khi thread hiện tại đóng thay vì báo lỗi chung.

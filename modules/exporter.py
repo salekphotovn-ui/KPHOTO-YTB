@@ -182,30 +182,8 @@ def export_video(
         progress_callback(100.0)
     if log_callback:
         log_callback(f"[Export] Hoàn tất: {output.name}")
-    try:
-        source.unlink()
-        if log_callback:
-            log_callback(f"[Export] Đã xóa file nguồn: {source.name}")
-    except OSError as exc:
-        if log_callback:
-            log_callback(f"[Export] Cảnh báo: không xóa được file nguồn {source.name}: {exc}")
+        log_callback(f"[Export] Giữ nguyên file nguồn: {source.name}")
     return str(output)
-
-
-def _cleanup_export_folder(folder: Path, log_callback=None) -> None:
-    """Keep exported videos and naming text files after successful export."""
-    for path in sorted(folder.rglob("*"), key=lambda item: len(item.parts), reverse=True):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() == ".txt" or path.stem.endswith("_Export"):
-            continue
-        try:
-            path.unlink()
-            if log_callback:
-                log_callback(f"[Export] Removed source file: {path.name}")
-        except OSError as exc:
-            if log_callback:
-                log_callback(f"[Export] Could not remove {path.name}: {exc}")
 
 
 def export_folder(
@@ -222,7 +200,6 @@ def export_folder(
         key=lambda path: str(path).casefold(),
     )
     results = []
-    exported_folders = set()
     total_videos = max(1, len(videos))
     for index, video in enumerate(videos, 1):
         if log_callback:
@@ -250,12 +227,9 @@ def export_folder(
                 log_callback=log_callback,
                 progress_callback=overall_progress,
             ))
-            exported_folders.add(video.parent)
             if log_callback:
                 log_callback(f"[ExportProgress] DONE {index}/{len(videos)}")
         except Exception as exc:
             if log_callback:
                 log_callback(f"[ExportProgress] FAIL {index}/{len(videos)} {video.name}: {exc}")
-    for folder in sorted(exported_folders, key=str):
-        _cleanup_export_folder(folder, log_callback)
     return results
