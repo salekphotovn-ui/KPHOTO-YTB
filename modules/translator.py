@@ -401,7 +401,7 @@ def translate_srt_batch(
             # one request per cue: that can multiply cost by hundreds.
             if not mapping:
                 log(f"[Translate] Batch {start + 1}-{end} trả kết quả rỗng, retry nguyên batch")
-                retry_batch = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite") else _gemini_translate
+                retry_batch = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini") else _gemini_translate
                 retry_model = "qwen3.8-max" if model == "hybrid-qwen-gemini" else (model if retry_batch is _qwen_translate else main_model)
                 mapping = retry_batch(items, "Chinese", target_name, retry_model, api_key)
             if model == "hybrid-qwen-gemini":
