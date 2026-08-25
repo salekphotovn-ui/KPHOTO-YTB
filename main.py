@@ -9,7 +9,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
-    QDialogButtonBox, QComboBox, QProgressBar, QCheckBox,
+    QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
 )
 
 from modules.separator import separate_folder
@@ -71,6 +71,27 @@ class AutoProcessDialog(QDialog):
 
     def values(self):
         return {key: check.isChecked() for key, check in self.checks.items()}
+
+
+class SrtModelDialog(QDialog):
+    def __init__(self, kphoto_available: bool, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Chọn model tạo SRT")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Chọn model nhận dạng tiếng Trung:"))
+        self.whisper = QRadioButton("Whisper V3 (large-v3) - chất lượng cao")
+        self.whisper.setChecked(True)
+        layout.addWidget(self.whisper)
+        self.kphoto = QRadioButton("KPHOTO-Local - nhanh, dùng GPU")
+        self.kphoto.setEnabled(kphoto_available)
+        if not kphoto_available:
+            self.kphoto.setToolTip("Chưa có model KPHOTO-Local trong Bili2YT_V3/models")
+        layout.addWidget(self.kphoto)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
+
+    def value(self):
+        return "kphoto-local" if self.kphoto.isChecked() else "whisper-v3"
 
 
 class TaskWorker(QObject):
@@ -426,7 +447,14 @@ class MainWindow(QMainWindow):
         self.start_task(run_auto_pipeline, str(self.root), steps)
 
     def create_srt(self):
-        self.start_task(create_srt_batch, str(self.root), "whisper-v3")
+        if self.root == Path.cwd() or not self.root.exists():
+            QMessageBox.warning(self, "Chưa chọn thư mục", "Hãy chọn thư mục tổng trước khi tạo SRT.")
+            return
+        kphoto = (Path(__file__).parent / "models" / "kphoto-local" / "zh" / "zh" / "model.pt").is_file()
+        dialog = SrtModelDialog(kphoto, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.start_task(create_srt_batch, str(self.root), dialog.value())
 
     def translate(self):
         self.start_task(translate_srt_batch, str(self.root), "en", "google-web", "")
