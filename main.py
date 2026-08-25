@@ -239,6 +239,7 @@ class MainWindow(QMainWindow):
         self.pending_task = None
         self.pending_download_links = []
         self.pending_download_dfn = "720P 高清, 720P"
+        self.overlay_configs = {}
         self._last_download_percent = None
         self.preview_subtitles = []
         self.preview_subtitle_path = None
@@ -440,8 +441,9 @@ class MainWindow(QMainWindow):
         self.media_player.stop()
         self._preview_loading_frame = True
         self._preview_was_muted = self.audio_output.isMuted()
-        self._subtitle_user_position = False
         self.preview_video_path = video_path
+        video_config = self.overlay_configs.get(str(video_path.resolve()), {})
+        self._subtitle_user_position = "subtitle_y_ratio" in video_config
         self.preview_subtitles = self._load_preview_subtitles(video_path)
         self.subtitle_label.clear()
         self.media_player.setSource(QUrl.fromLocalFile(str(video_path.resolve())))
@@ -457,19 +459,16 @@ class MainWindow(QMainWindow):
         viewport_size = self.video_view.viewport().size()
         width = max(1, viewport_size.width())
         height = max(1, viewport_size.height())
-        old_height = self.video_scene.sceneRect().height()
-        old_geometry = self.subtitle_proxy.geometry()
-        if self._subtitle_user_position and old_height > 1 and old_geometry.height() > 1:
-            subtitle_center_ratio = ((old_geometry.y() + old_geometry.height() / 2) /
-                                     old_height)
-        else:
-            native_size = self.video_item.nativeSize()
-            native_width = native_size.width() if native_size.width() > 0 else 16
-            native_height = native_size.height() if native_size.height() > 0 else 9
-            display_scale = min(width / native_width, height / native_height)
-            display_height = native_height * display_scale
-            display_top = (height - display_height) / 2
-            subtitle_center_ratio = (display_top + display_height * 0.86) / height
+        native_size = self.video_item.nativeSize()
+        native_width = native_size.width() if native_size.width() > 0 else 16
+        native_height = native_size.height() if native_size.height() > 0 else 9
+        display_scale = min(width / native_width, height / native_height)
+        display_height = native_height * display_scale
+        display_top = (height - display_height) / 2
+        video_config = (self.overlay_configs.get(str(self.preview_video_path.resolve()), {})
+                        if self.preview_video_path else {})
+        subtitle_y_ratio = float(video_config.get("subtitle_y_ratio", 0.86))
+        subtitle_center_ratio = (display_top + display_height * subtitle_y_ratio) / height
         scene_rect = QRectF(0, 0, width, height)
         self.video_scene.setSceneRect(scene_rect)
         self.video_item.setSize(QSizeF(width, height))
@@ -481,6 +480,25 @@ class MainWindow(QMainWindow):
 
     def _subtitle_was_moved(self):
         self._subtitle_user_position = True
+        if not self.preview_video_path:
+            return
+        scene_height = self.video_scene.sceneRect().height()
+        scene_width = self.video_scene.sceneRect().width()
+        native_size = self.video_item.nativeSize()
+        native_width = native_size.width() if native_size.width() > 0 else 16
+        native_height = native_size.height() if native_size.height() > 0 else 9
+        display_scale = min(scene_width / native_width, scene_height / native_height)
+        display_height = native_height * display_scale
+        display_top = (scene_height - display_height) / 2
+        subtitle_center = self.subtitle_proxy.geometry().center().y()
+        subtitle_y_ratio = ((subtitle_center - display_top) / display_height
+                            if display_height > 0 else 0.86)
+        subtitle_y_ratio = max(0.05, min(0.95, subtitle_y_ratio))
+        config = self.overlay_configs.setdefault(str(self.preview_video_path.resolve()), {})
+        config["subtitle_y_ratio"] = subtitle_y_ratio
+        self.status.setText(
+            f"Đã lưu vị trí sub {subtitle_y_ratio * 100:.1f}% cho {self.preview_video_path.name}"
+        )
 
     @staticmethod
     def _srt_time_ms(value: str) -> int:
@@ -835,7 +853,8 @@ class MainWindow(QMainWindow):
         self.start_task(mux_folder, str(self.root))
 
     def export(self):
-        self.start_task(export_folder, str(self.root))
+        configs = {path: dict(config) for path, config in self.overlay_configs.items()}
+        self.start_task(export_folder, str(self.root), overlay_configs=configs)
 
 
 def main():

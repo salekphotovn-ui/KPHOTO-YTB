@@ -53,7 +53,24 @@ def _duration_seconds(video_path: Path) -> float:
     return 0.0
 
 
-def _build_filter(video_path: Path, blur_boxes: list[list[float]], logo_path: str) -> str:
+def _video_height(video_path: Path) -> int:
+    try:
+        result = subprocess.run(
+            [FFMPEG_PATH, "-hide_banner", "-i", str(video_path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+        )
+        matches = re.findall(r"Video:.*?\b(\d{2,5})x(\d{2,5})\b", result.stderr)
+        if matches:
+            return int(matches[0][1])
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    return 480
+
+
+def _build_filter(
+    video_path: Path, blur_boxes: list[list[float]], logo_path: str,
+    subtitle_y_ratio: float = 0.86, logo_box: list[float] | None = None,
+) -> str:
     chains = ["[0:v]setpts=PTS-STARTPTS[base]"]
     current = "[base]"
     for index, box in enumerate(blur_boxes):
@@ -67,13 +84,24 @@ def _build_filter(video_path: Path, blur_boxes: list[list[float]], logo_path: st
         )
         current = f"[b{index}]"
     if logo_path:
+        logo_box = logo_box or [0.82, 0.02, 0.14, 0.14]
+        logo_x, logo_y, logo_width, logo_height = [
+            max(0.0, min(1.0, float(value))) for value in logo_box
+        ]
         logo_input = _ffmpeg_filter_path(Path(logo_path))
-        chains.append(f"movie='{logo_input}',format=rgba[logo];{current}[logo]scale2ref=w=main_w*0.14:h=main_h*0.14[logo_s][base_s];[base_s][logo_s]overlay=x=main_w*0.82:y=main_h*0.02[vlogo]")
+        chains.append(
+            f"movie='{logo_input}',format=rgba[logo];"
+            f"{current}[logo]scale2ref=w=main_w*{logo_width:.6f}:h=main_h*{logo_height:.6f}"
+            f"[logo_s][base_s];[base_s][logo_s]overlay="
+            f"x=main_w*{logo_x:.6f}:y=main_h*{logo_y:.6f}[vlogo]"
+        )
         current = "[vlogo]"
     subtitle = _subtitle_path(video_path)
     if subtitle:
         subtitle_expr = _ffmpeg_filter_path(subtitle)
-        chains.append(f"{current}subtitles='{subtitle_expr}':force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=0,Alignment=2,MarginV=45'[vout]")
+        subtitle_y_ratio = max(0.05, min(0.95, float(subtitle_y_ratio)))
+        margin_v = max(0, round(_video_height(video_path) * (1.0 - subtitle_y_ratio)))
+        chains.append(f"{current}subtitles='{subtitle_expr}':force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=0,Alignment=2,MarginV={margin_v}'[vout]")
         current = "[vout]"
     if current != "[vout]":
         chains.append(f"{current}null[vout]")
@@ -84,13 +112,15 @@ def export_video(
     video_path: str,
     blur_boxes: list[list[float]] | None = None,
     logo_path: str = "",
+    subtitle_y_ratio: float = 0.86,
+    logo_box: list[float] | None = None,
     log_callback=None,
     progress_callback=None,
 ) -> str:
     source = Path(video_path)
     output = source.with_name(f"{source.stem}_Export.mp4")
     blur_boxes = blur_boxes or []
-    filters = _build_filter(source, blur_boxes, logo_path)
+    filters = _build_filter(source, blur_boxes, logo_path, subtitle_y_ratio, logo_box)
     encoder = _encoder()
     command = [FFMPEG_PATH, "-y", "-progress", "pipe:1", "-nostats", "-i", str(source)]
     command += ["-filter_complex", filters, "-map", "[vout]", "-map", "0:a?", "-c:v", encoder]
@@ -198,9 +228,12 @@ def export_folder(
         if log_callback:
             log_callback(f"[ExportProgress] ITEM {index}/{len(videos)} {video.name}")
         try:
-            config = (overlay_configs or {}).get(str(video), {})
+            configs = overlay_configs or {}
+            config = configs.get(str(video.resolve()), configs.get(str(video), {}))
             video_blur = config.get("blur_boxes", blur_boxes)
             video_logo = config.get("logo_path", logo_path)
+            video_subtitle_y = config.get("subtitle_y_ratio", 0.86)
+            video_logo_box = config.get("logo_box")
             def overall_progress(value, current=index):
                 if progress_callback:
                     progress_callback(
@@ -208,7 +241,15 @@ def export_folder(
                         * 100.0 / total_videos
                     )
 
-            results.append(export_video(str(video), video_blur, video_logo, log_callback, overall_progress))
+            results.append(export_video(
+                str(video),
+                blur_boxes=video_blur,
+                logo_path=video_logo,
+                subtitle_y_ratio=video_subtitle_y,
+                logo_box=video_logo_box,
+                log_callback=log_callback,
+                progress_callback=overall_progress,
+            ))
             exported_folders.add(video.parent)
             if log_callback:
                 log_callback(f"[ExportProgress] DONE {index}/{len(videos)}")
