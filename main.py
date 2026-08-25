@@ -331,6 +331,10 @@ class MainWindow(QMainWindow):
 
     def write_log(self, message):
         text = str(message)
+        if "[TranslateCost]" in text:
+            self.log_view.append("[Chi phí] " + text.split("[TranslateCost]", 1)[-1].strip())
+            self.log_view.ensureCursorVisible()
+            return
         match = re.search(r"(?:\[DownloadProgress\]\s+PERCENT.*?\s+)?percent=([0-9]+(?:\.[0-9]+)?)", text, re.IGNORECASE)
         if match:
             percent = max(0, min(100, round(float(match.group(1)))))
@@ -339,7 +343,7 @@ class MainWindow(QMainWindow):
                 detail = text.split("[TranslateProgress]", 1)[-1].strip()
                 if detail.upper().startswith("START"):
                     return
-                self.log_view.append("[Dịch Qwen] " + detail)
+                self.log_view.append("[Dịch] " + detail)
                 self.log_view.ensureCursorVisible()
                 return
             # Keep the progress bar live without filling the log with repeats.
