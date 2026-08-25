@@ -23,6 +23,7 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Đã thêm xem trước video khi chọn phim: phát/tạm dừng, kéo timeline và hiển thị đúng phụ đề `subtitles/en.srt` theo thời gian.
 - Trình xem trước chỉ đọc chính xác `subtitles/en.srt`; các tên sai như `en..srt` bị bỏ qua.
 - Khi chọn phim, trình phát giải mã im lặng khung hình đầu tiên rồi tự dừng để khung xem không còn màu đen.
+- Video và phụ đề được vẽ chung bằng `QGraphicsVideoItem`, tránh lớp video Windows che mất chữ tiếng Anh.
 
 ## Pipeline V3
 

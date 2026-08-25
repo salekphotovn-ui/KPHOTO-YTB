@@ -6,14 +6,14 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, Qt, QUrl, QSizeF, QRectF, pyqtSignal
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PyQt6.QtMultimediaWidgets import QVideoWidget
+from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
     QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
-    QSlider, QStackedLayout, QListWidgetItem,
+    QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene,
 )
 
 from modules.separator import separate_folder
@@ -154,6 +154,14 @@ class TaskWorker(QObject):
             self.failed.emit(str(exc))
 
 
+class PreviewVideoView(QGraphicsView):
+    resized = pyqtSignal()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resized.emit()
+
+
 class DownloadDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -249,29 +257,34 @@ class MainWindow(QMainWindow):
         left_column = QVBoxLayout(); left_column.addWidget(film_panel, 1); left_column.addWidget(list_panel, 1)
         left_widget = QWidget(); left_widget.setLayout(left_column)
         preview = QFrame(); preview.setObjectName("panel"); preview_layout = QVBoxLayout(preview); preview_layout.addWidget(QLabel("XEM TRƯỚC", objectName="title"))
-        self.video_widget = QVideoWidget()
-        self.video_widget.setMinimumHeight(380)
-        self.video_widget.setStyleSheet("background:#050505;border:1px solid #050505")
+        self.video_view = PreviewVideoView()
+        self.video_view.setMinimumHeight(380)
+        self.video_view.setFrameShape(QFrame.Shape.NoFrame)
+        self.video_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.video_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.video_view.setStyleSheet("background:#050505;border:none")
+        self.video_scene = QGraphicsScene(self.video_view)
+        self.video_view.setScene(self.video_scene)
+        self.video_item = QGraphicsVideoItem()
+        self.video_item.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
+        self.video_scene.addItem(self.video_item)
         self.subtitle_label = QLabel("")
         self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
         self.subtitle_label.setWordWrap(True)
         self.subtitle_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.subtitle_label.setContentsMargins(28, 20, 28, 28)
+        self.subtitle_label.setContentsMargins(35, 20, 35, 30)
         self.subtitle_label.setStyleSheet(
             "QLabel { color:white; background:transparent; font-size:22px; "
-            "font-weight:700; padding:8px; }"
+            "font-weight:800; padding:8px; }"
         )
-        video_surface = QWidget()
-        video_stack = QStackedLayout(video_surface)
-        video_stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
-        video_stack.setContentsMargins(0, 0, 0, 0)
-        video_stack.addWidget(self.video_widget)
-        video_stack.addWidget(self.subtitle_label)
-        preview_layout.addWidget(video_surface, 1)
+        self.subtitle_proxy = self.video_scene.addWidget(self.subtitle_label)
+        self.subtitle_proxy.setZValue(10)
+        self.video_view.resized.connect(self._resize_preview_scene)
+        preview_layout.addWidget(self.video_view, 1)
         self.audio_output = QAudioOutput(self)
         self.media_player = QMediaPlayer(self)
         self.media_player.setAudioOutput(self.audio_output)
-        self.media_player.setVideoOutput(self.video_widget)
+        self.media_player.setVideoOutput(self.video_item)
         self.media_player.positionChanged.connect(self._preview_position_changed)
         self.media_player.durationChanged.connect(self._preview_duration_changed)
         self.media_player.playbackStateChanged.connect(self._preview_state_changed)
@@ -393,6 +406,15 @@ class MainWindow(QMainWindow):
         subtitle_name = (f"subtitles/{self.preview_subtitle_path.name}"
                          if self.preview_subtitle_path else "không có subtitles/en.srt")
         self.status.setText(f"Xem trước: {video_path.name} · {subtitle_name}")
+
+    def _resize_preview_scene(self):
+        viewport_size = self.video_view.viewport().size()
+        width = max(1, viewport_size.width())
+        height = max(1, viewport_size.height())
+        scene_rect = QRectF(0, 0, width, height)
+        self.video_scene.setSceneRect(scene_rect)
+        self.video_item.setSize(QSizeF(width, height))
+        self.subtitle_proxy.setGeometry(scene_rect)
 
     @staticmethod
     def _srt_time_ms(value: str) -> int:
