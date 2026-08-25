@@ -286,9 +286,13 @@ class MainWindow(QMainWindow):
         self.log_view.ensureCursorVisible()
 
     def start_task(self, task, *args, **kwargs):
-        if self.thread and self.thread.isRunning():
-            QMessageBox.information(self, "Đang xử lý", "Một tác vụ khác đang chạy.")
-            return
+        if self.thread:
+            try:
+                if self.thread.isRunning():
+                    QMessageBox.information(self, "Đang xử lý", "Một tác vụ khác đang chạy.")
+                    return
+            except RuntimeError:
+                self.thread = None
         self.thread = QThread(self)
         self.worker = TaskWorker(task, *args, **kwargs)
         self.worker.moveToThread(self.thread)
@@ -298,9 +302,14 @@ class MainWindow(QMainWindow):
         self.worker.failed.connect(self.task_failed)
         self.worker.done.connect(self.thread.quit)
         self.worker.failed.connect(self.thread.quit)
+        self.thread.finished.connect(self._task_thread_finished)
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
         self.status.setText("Đang xử lý...")
+
+    def _task_thread_finished(self):
+        self.thread = None
+        self.worker = None
 
     def task_done(self, result):
         self.status.setText("Hoàn tất")
