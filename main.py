@@ -6,11 +6,14 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
     QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
+    QSlider, QStackedLayout, QListWidgetItem,
 )
 
 from modules.separator import separate_folder
@@ -195,6 +198,9 @@ class MainWindow(QMainWindow):
         self.pending_download_links = []
         self.pending_download_dfn = "720P 高清, 720P"
         self._last_download_percent = None
+        self.preview_subtitles = []
+        self.preview_subtitle_path = None
+        self.preview_video_path = None
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1200, 780)
         self._build_ui_v3()
@@ -240,11 +246,47 @@ class MainWindow(QMainWindow):
         list_panel = QFrame(); list_panel.setObjectName("panel"); list_panel.setLayout(list_layout)
         left_column = QVBoxLayout(); left_column.addWidget(film_panel, 1); left_column.addWidget(list_panel, 1)
         left_widget = QWidget(); left_widget.setLayout(left_column)
-        preview = QFrame(); preview.setObjectName("panel"); preview_layout = QVBoxLayout(preview); preview_layout.addWidget(QLabel("XEM TRƯỚC", objectName="title")); blank = QLabel(""); blank.setMinimumHeight(380); blank.setStyleSheet("background:#050505;border:1px solid #050505"); preview_layout.addWidget(blank, 1)
+        preview = QFrame(); preview.setObjectName("panel"); preview_layout = QVBoxLayout(preview); preview_layout.addWidget(QLabel("XEM TRƯỚC", objectName="title"))
+        self.video_widget = QVideoWidget()
+        self.video_widget.setMinimumHeight(380)
+        self.video_widget.setStyleSheet("background:#050505;border:1px solid #050505")
+        self.subtitle_label = QLabel("")
+        self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
+        self.subtitle_label.setWordWrap(True)
+        self.subtitle_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.subtitle_label.setContentsMargins(28, 20, 28, 28)
+        self.subtitle_label.setStyleSheet(
+            "QLabel { color:white; background:transparent; font-size:22px; "
+            "font-weight:700; padding:8px; }"
+        )
+        video_surface = QWidget()
+        video_stack = QStackedLayout(video_surface)
+        video_stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
+        video_stack.setContentsMargins(0, 0, 0, 0)
+        video_stack.addWidget(self.video_widget)
+        video_stack.addWidget(self.subtitle_label)
+        preview_layout.addWidget(video_surface, 1)
+        self.audio_output = QAudioOutput(self)
+        self.media_player = QMediaPlayer(self)
+        self.media_player.setAudioOutput(self.audio_output)
+        self.media_player.setVideoOutput(self.video_widget)
+        self.media_player.positionChanged.connect(self._preview_position_changed)
+        self.media_player.durationChanged.connect(self._preview_duration_changed)
+        self.media_player.playbackStateChanged.connect(self._preview_state_changed)
+        self.media_player.errorOccurred.connect(self._preview_error)
         controls = QHBoxLayout()
-        for label in ("▶", "+ Blur", "+ Logo", "+ Khung"):
+        self.preview_play = QPushButton("▶")
+        self.preview_play.setEnabled(False)
+        self.preview_play.clicked.connect(self._toggle_preview)
+        controls.addWidget(self.preview_play)
+        for label in ("+ Blur", "+ Logo", "+ Khung"):
             controls.addWidget(QPushButton(label))
-        controls.addWidget(QLabel("Mức mờ")); controls.addWidget(QLabel("━━━━━━")); controls.addWidget(QLabel("00:00 / 00:00"))
+        self.preview_timeline = QSlider(Qt.Orientation.Horizontal)
+        self.preview_timeline.setRange(0, 0)
+        self.preview_timeline.sliderMoved.connect(self._seek_preview)
+        controls.addWidget(self.preview_timeline, 1)
+        self.preview_time = QLabel("00:00 / 00:00")
+        controls.addWidget(self.preview_time)
         preview_layout.addLayout(controls)
         log_panel = QFrame(); log_panel.setObjectName("panel"); log_layout = QVBoxLayout(log_panel); log_layout.addWidget(QLabel("NHẬT KÝ CHUNG", objectName="title")); log_layout.addWidget(QLabel("Chưa có lượt tải", objectName="muted")); self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0); self.progress.setFormat("%p%"); log_layout.addWidget(self.progress); log_layout.addWidget(self.log_view, 1)
         middle = QHBoxLayout(); middle.setSpacing(8); middle.addWidget(left_widget, 1); middle.addWidget(preview, 2); middle.addWidget(log_panel, 1)
@@ -253,6 +295,7 @@ class MainWindow(QMainWindow):
             button = QPushButton(label); button.setObjectName("primary" if "Xuất" in label else ""); button.clicked.connect(callback); actions.addWidget(button, 1)
         root = QVBoxLayout(); root.setContentsMargins(17, 12, 17, 12); root.addLayout(header); root.addWidget(folder_bar); root.addLayout(middle, 1); root.addLayout(actions); root.addWidget(self.status)
         widget = QWidget(); widget.setLayout(root); self.setCentralWidget(widget)
+        self.movies.currentItemChanged.connect(self._select_preview_video)
 
     def _build_ui(self):
         self.folder_label = QLabel("Chưa chọn thư mục")
@@ -316,8 +359,115 @@ class MainWindow(QMainWindow):
         self.root = Path(selected)
         self.folder_label.setText(str(self.root))
         self.movies.clear()
-        self.movies.addItems(sorted(p.name for p in self.root.rglob("*.mp4")))
+        video_paths = sorted(self.root.rglob("*.mp4"), key=lambda path: str(path).lower())
+        for path in video_paths:
+            item = QListWidgetItem(path.name)
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
+            item.setToolTip(str(path))
+            self.movies.addItem(item)
         self.write_log(f"[UI] Đã chọn: {self.root}")
+
+    def _select_preview_video(self, current, _previous=None):
+        if current is None:
+            return
+        stored_path = current.data(Qt.ItemDataRole.UserRole)
+        if not stored_path:
+            return
+        video_path = Path(stored_path)
+        if not video_path.exists():
+            self.status.setText(f"Không tìm thấy video: {video_path.name}")
+            return
+        self.media_player.stop()
+        self.preview_video_path = video_path
+        self.preview_subtitles = self._load_preview_subtitles(video_path)
+        self.subtitle_label.clear()
+        self.media_player.setSource(QUrl.fromLocalFile(str(video_path.resolve())))
+        self.preview_play.setEnabled(True)
+        self.preview_play.setText("▶")
+        self.preview_timeline.setValue(0)
+        subtitle_name = (f"subtitles/{self.preview_subtitle_path.name}"
+                         if self.preview_subtitle_path else "không có subtitles/en.srt")
+        self.status.setText(f"Xem trước: {video_path.name} · {subtitle_name}")
+
+    @staticmethod
+    def _srt_time_ms(value: str) -> int:
+        hours, minutes, seconds_ms = value.strip().replace(".", ",").split(":")
+        seconds, milliseconds = seconds_ms.split(",")
+        return (((int(hours) * 60 + int(minutes)) * 60 + int(seconds)) * 1000
+                + int(milliseconds.ljust(3, "0")[:3]))
+
+    def _load_preview_subtitles(self, video_path: Path):
+        subtitle_folder = video_path.parent / "subtitles"
+        subtitle_path = subtitle_folder / "en.srt"
+        if not subtitle_path.exists() and subtitle_folder.exists():
+            fallbacks = sorted(subtitle_folder.glob("en*.srt"), key=lambda path: path.name.lower())
+            subtitle_path = fallbacks[0] if fallbacks else subtitle_path
+        self.preview_subtitle_path = subtitle_path if subtitle_path.exists() else None
+        if self.preview_subtitle_path is None:
+            return []
+        try:
+            raw = self.preview_subtitle_path.read_text(encoding="utf-8-sig", errors="replace")
+            cues = []
+            for block in re.split(r"\r?\n\s*\r?\n", raw.strip()):
+                lines = block.splitlines()
+                timing_index = next((i for i, line in enumerate(lines) if "-->" in line), -1)
+                if timing_index < 0:
+                    continue
+                start_text, end_text = (part.strip() for part in lines[timing_index].split("-->", 1))
+                text = "\n".join(line.strip() for line in lines[timing_index + 1:] if line.strip())
+                if text:
+                    cues.append((self._srt_time_ms(start_text), self._srt_time_ms(end_text), text))
+            return cues
+        except (OSError, ValueError) as exc:
+            self.write_log(f"[Preview] Không đọc được {subtitle_path}: {exc}")
+            return []
+
+    def _toggle_preview(self):
+        if not self.preview_video_path:
+            return
+        if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self.media_player.pause()
+        else:
+            self.media_player.play()
+
+    def _seek_preview(self, position: int):
+        self.media_player.setPosition(position)
+
+    def _preview_duration_changed(self, duration: int):
+        self.preview_timeline.setRange(0, max(0, duration))
+        self.preview_time.setText(f"{self._format_preview_time(0)} / {self._format_preview_time(duration)}")
+
+    def _preview_position_changed(self, position: int):
+        if not self.preview_timeline.isSliderDown():
+            self.preview_timeline.setValue(position)
+        self.preview_time.setText(
+            f"{self._format_preview_time(position)} / {self._format_preview_time(self.media_player.duration())}"
+        )
+        subtitle = ""
+        for start, end, text in self.preview_subtitles:
+            if start <= position <= end:
+                subtitle = text
+                break
+            if start > position:
+                break
+        self.subtitle_label.setText(subtitle)
+
+    def _preview_state_changed(self, state):
+        self.preview_play.setText("Ⅱ" if state == QMediaPlayer.PlaybackState.PlayingState else "▶")
+
+    def _preview_error(self, _error, error_text: str):
+        if error_text:
+            self.write_log(f"[Preview] Lỗi phát video: {error_text}")
+            self.status.setText(f"Không thể phát {self.preview_video_path.name if self.preview_video_path else 'video'}")
+
+    @staticmethod
+    def _format_preview_time(milliseconds: int) -> str:
+        total_seconds = max(0, int(milliseconds)) // 1000
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
 
     def download(self):
         dialog = DownloadDialog(self)

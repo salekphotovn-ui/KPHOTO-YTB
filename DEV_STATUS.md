@@ -20,6 +20,8 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Hybrid đã được đặt làm model dịch mặc định: Qwen3.8-Max dịch chính, Gemini 3.6 Flash-High sửa cue nghi ngờ.
 - Hybrid dùng hai key riêng trong `config.local.json`: `qwen_api_key` và `gemini36_api_key`.
 - Đã thêm tính chi phí theo model, QA ký tự Trung/cue dài và retry batch để tránh phát sinh request hàng loạt.
+- Đã thêm xem trước video khi chọn phim: phát/tạm dừng, kéo timeline và hiển thị đúng phụ đề `subtitles/en.srt` theo thời gian.
+- Trình xem trước ưu tiên `en.srt` và tương thích tên `en*.srt` trong đúng thư mục phim (ví dụ dữ liệu cũ `en..srt`).
 
 ## Pipeline V3
 
@@ -64,6 +66,7 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Kiểm tra Qwen3.7-Plus với SRT dài, tiến độ và chi phí trong nhật ký.
 - Kiểm tra QA ký tự Trung còn sót, cue thiếu và tên riêng không nhất quán.
 - Kiểm tra Hybrid trên SRT dài: xác nhận Qwen dịch chính, Gemini sửa chọn lọc và log chi phí.
+- Mở giao diện và kiểm tra hình/âm thanh, kéo timeline, đổi qua lại nhiều phim và phụ đề tiếng Anh tương ứng.
 
 ## Quy tắc an toàn
 
