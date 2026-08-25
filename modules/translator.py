@@ -24,12 +24,13 @@ TIME_RE = re.compile(
 NON_WORD_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 _QWEN_USAGE = {"input": 0, "output": 0, "requests": 0}
 _QWEN_USAGE_LOCK = threading.Lock()
+_QWEN_PRICING = {"input": 800, "output": 4000, "minimum": 20}
 
 
 def _qwen_cost_vnd() -> float:
     with _QWEN_USAGE_LOCK:
-        raw = (_QWEN_USAGE["input"] * 800 + _QWEN_USAGE["output"] * 4000) / 1_000_000
-        return max(raw, _QWEN_USAGE["requests"] * 20)
+        raw = (_QWEN_USAGE["input"] * _QWEN_PRICING["input"] + _QWEN_USAGE["output"] * _QWEN_PRICING["output"]) / 1_000_000
+        return max(raw, _QWEN_USAGE["requests"] * _QWEN_PRICING["minimum"])
 
 
 def _to_seconds(values: list[int | None]) -> float:
@@ -341,6 +342,10 @@ def translate_srt_batch(
     source_language = str(source_language or "zh").strip().lower()
     with _QWEN_USAGE_LOCK:
         _QWEN_USAGE.update(input=0, output=0, requests=0)
+        if model == "qwen3.8-max":
+            _QWEN_PRICING.update(input=285, output=1045, minimum=13)
+        else:
+            _QWEN_PRICING.update(input=800, output=4000, minimum=20)
     source_files = sorted(
         (path for path in root.rglob("*.srt") if path.stem.lower() == source_language),
         key=lambda path: str(path).casefold(),
@@ -426,6 +431,10 @@ def translate_srt_batch(
                 translated[index] = cues[index]["text"]
         output_path = source_path.parent / f"{target_language}.srt"
         output_cues = [{**cue, "text": translated[index]} for index, cue in enumerate(cues)]
+        leftover_cjk = sum(bool(re.search(r"[\u4e00-\u9fff]", cue["text"])) for cue in output_cues)
+        suspicious_long = sum(len(cue["text"]) > 120 for cue in output_cues)
+        if leftover_cjk or suspicious_long:
+            log(f"[TranslateQA] {film_name}: còn {leftover_cjk} cue có chữ Trung, {suspicious_long} cue quá dài (không gọi thêm request)")
         _write_srt(output_path, output_cues)
         results.append(str(output_path))
         log(f"[Translate] FILM_DONE {film_name} output={output_path.name}")
@@ -442,7 +451,7 @@ def translate_srt_batch(
         with _QWEN_USAGE_LOCK:
             total = _qwen_cost_vnd()
             reqs = _QWEN_USAGE["requests"]
-        log(f"[TranslateCost] TỔNG PHIÊN: {total:,.0f} VND ({reqs} requests; tối thiểu 20 VND/request)")
+        log(f"[TranslateCost] TỔNG PHIÊN: {total:,.0f} VND ({reqs} requests; tối thiểu {_QWEN_PRICING['minimum']} VND/request)")
     return results
 
 
