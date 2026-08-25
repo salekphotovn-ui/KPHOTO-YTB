@@ -393,7 +393,8 @@ def translate_srt_batch(
             log(f"[TranslateProgress] START {start + 1}-{end}/{len(cues)}")
             items = [{"id": index, "text": cues[index]["text"]} for index in range(start, end)]
             if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini"):
-                mapping = _qwen_translate(items, "Chinese", target_name, model, api_key)
+                api_model = "qwen3.8-max" if model == "hybrid-qwen-gemini" else model
+                mapping = _qwen_translate(items, "Chinese", target_name, api_model, api_key)
             else:
                 mapping = _gemini_translate(items, "Chinese", target_name, main_model, api_key)
             # Retry a malformed/empty batch once as a batch. Never fan out to
@@ -401,7 +402,8 @@ def translate_srt_batch(
             if not mapping:
                 log(f"[Translate] Batch {start + 1}-{end} trả kết quả rỗng, retry nguyên batch")
                 retry_batch = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite") else _gemini_translate
-                mapping = retry_batch(items, "Chinese", target_name, model if retry_batch is _qwen_translate else main_model, api_key)
+                retry_model = "qwen3.8-max" if model == "hybrid-qwen-gemini" else (model if retry_batch is _qwen_translate else main_model)
+                mapping = retry_batch(items, "Chinese", target_name, retry_model, api_key)
             if model == "hybrid-qwen-gemini":
                 flagged = [item for item in items if re.search(r"[\u4e00-\u9fff]", mapping.get(item["id"], "")) or len(mapping.get(item["id"], "")) > 120]
                 if flagged:
