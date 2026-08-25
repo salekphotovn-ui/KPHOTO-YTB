@@ -62,7 +62,10 @@ class AutoProcessDialog(QDialog):
         self.checks = {}
         items = [("download", "Tải video (link đã nhập)"), ("separate", "Tách vocal"), ("srt", "Tạo SRT bằng Whisper V3"), ("translate", "Dịch phụ đề bằng Google Web"), ("mux", "Ghép vocal"), ("export", "Xuất video")]
         for key, label in items:
-            check = QCheckBox(label); check.setChecked(True); check.setEnabled(key != "download" or has_pending_download); self.checks[key] = check; layout.addWidget(check)
+            check = QCheckBox(label)
+            check.setChecked(key != "download" or has_pending_download)
+            self.checks[key] = check
+            layout.addWidget(check)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
