@@ -16,6 +16,7 @@ from config import FFMPEG_PATH
 
 _WHISPER_MODEL = None
 _WHISPER_MODEL_KEY = None
+VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".avi", ".webm")
 
 
 def _format_srt_time(seconds: float) -> str:
@@ -116,6 +117,56 @@ def _audio_duration(audio_path: Path) -> float:
         return float(result.stdout.strip() or 0)
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return 0.0
+
+
+def _source_video_for_vocal(vocal_path: Path) -> Path | None:
+    base_name = re.sub(r"[\s_-]*\(Vocals\)$", "", vocal_path.stem, flags=re.IGNORECASE)
+    for extension in VIDEO_EXTENSIONS:
+        candidate = vocal_path.with_name(base_name + extension)
+        if candidate.is_file():
+            return candidate
+    matches = [
+        path for path in vocal_path.parent.iterdir()
+        if path.is_file()
+        and path.suffix.casefold() in VIDEO_EXTENSIONS
+        and path.stem.casefold() == base_name.casefold()
+    ]
+    return sorted(matches, key=lambda path: path.name.casefold())[0] if matches else None
+
+
+def _align_segments_to_video_timeline(
+    segments: list[dict], vocal_path: Path, log_callback
+) -> list[dict]:
+    """Undo progressive timestamp drift when a separated vocal is time-stretched."""
+    source_video = _source_video_for_vocal(vocal_path)
+    if source_video is None:
+        log_callback("[SrtSync] Khong tim thay video goc, giu nguyen timeline vocal.")
+        return segments
+    vocal_duration = _audio_duration(vocal_path)
+    video_duration = _audio_duration(source_video)
+    if vocal_duration <= 0 or video_duration <= 0:
+        log_callback("[SrtSync] Khong doc duoc thoi luong, giu nguyen timeline vocal.")
+        return segments
+    drift = vocal_duration - video_duration
+    scale = video_duration / vocal_duration
+    if abs(drift) < 0.020:
+        log_callback(
+            f"[SrtSync] Timeline da khop: video={video_duration:.3f}s, "
+            f"vocal={vocal_duration:.3f}s."
+        )
+        return segments
+    corrected = []
+    for segment in segments:
+        item = dict(segment)
+        item["start"] = max(0.0, float(item.get("start") or 0) * scale)
+        item["end"] = min(video_duration, max(0.0, float(item.get("end") or 0) * scale))
+        corrected.append(item)
+    log_callback(
+        f"[SrtSync] Da sua drift tich luy {drift:+.3f}s: "
+        f"video={video_duration:.3f}s, vocal={vocal_duration:.3f}s, "
+        f"he so={scale:.9f}."
+    )
+    return corrected
 
 
 def _run_kphoto_chunked(audio_path: Path, log_callback) -> dict:
@@ -319,7 +370,7 @@ def create_srt_batch(root_path: str, engine: str = "kphoto-local", log_callback=
         folder = vocal_path.parent
         subtitle_dir = folder / "subtitles"
         subtitle_dir.mkdir(parents=True, exist_ok=True)
-        base_name = re.sub(r"\s*\(Vocals\)$", "", vocal_path.stem, flags=re.IGNORECASE)
+        base_name = re.sub(r"[\s_-]*\(Vocals\)$", "", vocal_path.stem, flags=re.IGNORECASE)
         log_callback(f"[SrtProgress] ITEM {index}/{len(vocal_files)} {vocal_path.name}")
         try:
             if engine == "kphoto-local":
@@ -329,6 +380,7 @@ def create_srt_batch(root_path: str, engine: str = "kphoto-local", log_callback=
             segments = transcript.get("segments", [])
             if not segments:
                 raise RuntimeError("Khong nhan dang duoc cau thoai.")
+            segments = _align_segments_to_video_timeline(segments, vocal_path, log_callback)
             language = str(
                 transcript.get("language") or ("zh" if engine == "kphoto-local" else "auto")
             )
