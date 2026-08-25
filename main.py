@@ -201,6 +201,8 @@ class MainWindow(QMainWindow):
         self.preview_subtitles = []
         self.preview_subtitle_path = None
         self.preview_video_path = None
+        self._preview_loading_frame = False
+        self._preview_was_muted = False
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1200, 780)
         self._build_ui_v3()
@@ -273,6 +275,7 @@ class MainWindow(QMainWindow):
         self.media_player.positionChanged.connect(self._preview_position_changed)
         self.media_player.durationChanged.connect(self._preview_duration_changed)
         self.media_player.playbackStateChanged.connect(self._preview_state_changed)
+        self.media_player.mediaStatusChanged.connect(self._preview_media_status_changed)
         self.media_player.errorOccurred.connect(self._preview_error)
         controls = QHBoxLayout()
         self.preview_play = QPushButton("▶")
@@ -378,6 +381,8 @@ class MainWindow(QMainWindow):
             self.status.setText(f"Không tìm thấy video: {video_path.name}")
             return
         self.media_player.stop()
+        self._preview_loading_frame = True
+        self._preview_was_muted = self.audio_output.isMuted()
         self.preview_video_path = video_path
         self.preview_subtitles = self._load_preview_subtitles(video_path)
         self.subtitle_label.clear()
@@ -422,6 +427,11 @@ class MainWindow(QMainWindow):
     def _toggle_preview(self):
         if not self.preview_video_path:
             return
+        if self._preview_loading_frame:
+            self._preview_loading_frame = False
+            self.audio_output.setMuted(self._preview_was_muted)
+            self.media_player.play()
+            return
         if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.media_player.pause()
         else:
@@ -435,6 +445,10 @@ class MainWindow(QMainWindow):
         self.preview_time.setText(f"{self._format_preview_time(0)} / {self._format_preview_time(duration)}")
 
     def _preview_position_changed(self, position: int):
+        if self._preview_loading_frame and position > 0:
+            self._preview_loading_frame = False
+            self.media_player.pause()
+            self.audio_output.setMuted(self._preview_was_muted)
         if not self.preview_timeline.isSliderDown():
             self.preview_timeline.setValue(position)
         self.preview_time.setText(
@@ -452,7 +466,17 @@ class MainWindow(QMainWindow):
     def _preview_state_changed(self, state):
         self.preview_play.setText("Ⅱ" if state == QMediaPlayer.PlaybackState.PlayingState else "▶")
 
+    def _preview_media_status_changed(self, status):
+        if (self._preview_loading_frame
+                and status in (QMediaPlayer.MediaStatus.LoadedMedia,
+                               QMediaPlayer.MediaStatus.BufferedMedia)):
+            self.audio_output.setMuted(True)
+            self.media_player.play()
+
     def _preview_error(self, _error, error_text: str):
+        if self._preview_loading_frame:
+            self._preview_loading_frame = False
+            self.audio_output.setMuted(self._preview_was_muted)
         if error_text:
             self.write_log(f"[Preview] Lỗi phát video: {error_text}")
             self.status.setText(f"Không thể phát {self.preview_video_path.name if self.preview_video_path else 'video'}")
