@@ -225,6 +225,8 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
     )
     segments = []
     segment_count = 0
+    last_percent = -1
+    duration = max(0.0, _audio_duration(audio_path))
     for segment in segments_iter:
         text = str(segment.text or "").strip()
         if text and segment.end > segment.start:
@@ -232,6 +234,12 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
             segment_count += 1
             if segment_count == 1 or segment_count % 10 == 0:
                 log_callback(f"[SrtProgress] Whisper đã nhận dạng {segment_count} đoạn, đến {segment.end:.1f}s")
+            if duration > 0:
+                percent = max(0, min(99, int(float(segment.end) * 100 / duration)))
+                if percent >= last_percent + 5:
+                    last_percent = percent
+                    log_callback(f"[SrtProgress] WHISPER_PERCENT {percent}")
+    log_callback("[SrtProgress] WHISPER_PERCENT 100")
     return {"language": getattr(info, "language", "auto"), "segments": segments}
 
 
