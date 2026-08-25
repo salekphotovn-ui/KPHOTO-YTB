@@ -396,12 +396,20 @@ def translate_srt_batch(
                 mapping = _qwen_translate(items, "Chinese", target_name, model, api_key)
             else:
                 mapping = _gemini_translate(items, "Chinese", target_name, main_model, api_key)
+            # Retry a malformed/empty batch once as a batch. Never fan out to
+            # one request per cue: that can multiply cost by hundreds.
+            if not mapping:
+                log(f"[Translate] Batch {start + 1}-{end} trả kết quả rỗng, retry nguyên batch")
+                retry_batch = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite") else _gemini_translate
+                mapping = retry_batch(items, "Chinese", target_name, model if retry_batch is _qwen_translate else main_model, api_key)
             missing = [
                 index for index in range(start, end)
                 if not mapping.get(index) or mapping[index].strip() == cues[index]["text"].strip()
             ]
             # Hybrid mode uses Pro only for incomplete/source-unchanged lines.
-            for index in missing:
+            # Only repair a small number of missing cues individually. Larger
+            # failures are left as source text to avoid runaway API cost.
+            for index in missing[:3]:
                 retry_fn = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite") else _gemini_translate
                 retry = retry_fn(
                     [{"id": index, "text": cues[index]["text"]}],
