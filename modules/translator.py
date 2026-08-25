@@ -1,4 +1,4 @@
-"""Google Web/Gemini subtitle translation for the V3 batch workflow."""
+"""Google Web/Gemini/Qwen subtitle translation for the V3 batch workflow."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import json
 import re
 import time
 import traceback
+import os
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -20,6 +22,14 @@ TIME_RE = re.compile(
     r"(\d{2}):(\d{2}):(\d{2}),(\d{3})"
 )
 NON_WORD_RE = re.compile(r"^[\W_]+$", re.UNICODE)
+_QWEN_USAGE = {"input": 0, "output": 0, "requests": 0}
+_QWEN_USAGE_LOCK = threading.Lock()
+
+
+def _qwen_cost_vnd() -> float:
+    with _QWEN_USAGE_LOCK:
+        raw = (_QWEN_USAGE["input"] * 800 + _QWEN_USAGE["output"] * 4000) / 1_000_000
+        return max(raw, _QWEN_USAGE["requests"] * 20)
 
 
 def _to_seconds(values: list[int | None]) -> float:
@@ -253,6 +263,48 @@ def _gemini_translate(items: list[dict], source: str, target: str, model: str, a
     return _parse_translation_response(text)
 
 
+def _qwen_translate(items: list[dict], source: str, target: str, model: str, api_key: str) -> dict[int, str]:
+    """Call an OpenAI-compatible Qwen endpoint without exposing credentials."""
+    if not api_key:
+        raise RuntimeError("Thiếu QWEN_API_KEY (đặt trong biến môi trường hoặc ô API key).")
+    base_url = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1").rstrip("/")
+    prompt = (
+        f"Translate subtitle lines from {source} to {target}. Write them as a native English subtitle translator would. "
+        "Use natural idiomatic English, correct conversational rhythm, and the appropriate register for each speaker "
+        "(child, parent, servant, noble, soldier, romantic partner, etc.). Do not translate word-for-word or preserve "
+        "Chinese sentence order. Adapt idioms and jokes so an English-speaking viewer understands the intended meaning, "
+        "while preserving names, relationships, plot facts, emotion and historical/cultural setting. Keep subtitles concise "
+        "and readable; never add explanations. Return JSON only as "
+        '{"translations":[{"id":0,"text":"..."}]} and include every ID exactly once.\n\n'
+        + json.dumps(items, ensure_ascii=False)
+    )
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}],
+                      "temperature": 0.2, "response_format": {"type": "json_object"}},
+                timeout=(30, 300),
+            )
+            if response.ok:
+                data = response.json()
+                usage = data.get("usage", {}) or {}
+                with _QWEN_USAGE_LOCK:
+                    _QWEN_USAGE["input"] += int(usage.get("prompt_tokens", 0) or 0)
+                    _QWEN_USAGE["output"] += int(usage.get("completion_tokens", 0) or 0)
+                    _QWEN_USAGE["requests"] += 1
+                text = data["choices"][0]["message"].get("content", "")
+                return _parse_translation_response(text)
+            if response.status_code not in (429, 500, 502, 503, 504):
+                raise RuntimeError(f"Qwen HTTP {response.status_code}: {response.text[:300]}")
+        except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
+            if attempt == 2:
+                raise RuntimeError(f"Qwen không phản hồi sau nhiều lần thử: {exc}") from exc
+        time.sleep(2 ** attempt)
+    raise RuntimeError("Qwen không trả về kết quả.")
+
+
 def translate_srt_batch(
     root_path: str,
     target_language: str,
@@ -272,6 +324,8 @@ def translate_srt_batch(
     root = Path(root_path)
     results = []
     source_language = str(source_language or "zh").strip().lower()
+    with _QWEN_USAGE_LOCK:
+        _QWEN_USAGE.update(input=0, output=0, requests=0)
     source_files = sorted(
         (path for path in root.rglob("*.srt") if path.stem.lower() == source_language),
         key=lambda path: str(path).casefold(),
@@ -301,15 +355,20 @@ def translate_srt_batch(
         parts = [(start, min(start + 100, len(cues))) for start in range(0, len(cues), 100)]
 
         def translate_part(start: int, end: int) -> tuple[int, int, dict[int, str]]:
+            log(f"[TranslateProgress] START {start + 1}-{end}/{len(cues)}")
             items = [{"id": index, "text": cues[index]["text"]} for index in range(start, end)]
-            mapping = _gemini_translate(items, "Chinese", target_name, main_model, api_key)
+            if model == "qwen3.7-plus":
+                mapping = _qwen_translate(items, "Chinese", target_name, model, api_key)
+            else:
+                mapping = _gemini_translate(items, "Chinese", target_name, main_model, api_key)
             missing = [
                 index for index in range(start, end)
                 if not mapping.get(index) or mapping[index].strip() == cues[index]["text"].strip()
             ]
             # Hybrid mode uses Pro only for incomplete/source-unchanged lines.
             for index in missing:
-                retry = _gemini_translate(
+                retry_fn = _qwen_translate if model == "qwen3.7-plus" else _gemini_translate
+                retry = retry_fn(
                     [{"id": index, "text": cues[index]["text"]}],
                     "Chinese",
                     target_name,
@@ -331,7 +390,8 @@ def translate_srt_batch(
                     if start <= index < end:
                         translated[index] = text
                 completed += 1
-                log(f"[TranslateProgress] {min(completed * 100, len(cues))}/{len(cues)} câu ({completed}/{len(parts)} phần)")
+                percent = round(end * 100 / max(1, len(cues)))
+                log(f"[TranslateProgress] {end}/{len(cues)} câu ({completed}/{len(parts)} phần) percent={percent}")
 
         for index, text in enumerate(translated):
             if not text:
@@ -342,6 +402,19 @@ def translate_srt_batch(
         results.append(str(output_path))
         log(f"[Translate] FILM_DONE {film_name} output={output_path.name}")
         log(f"[Translate] Đã lưu {output_path.name}")
+        if model == "qwen3.7-plus":
+            with _QWEN_USAGE_LOCK:
+                usage_snapshot = dict(_QWEN_USAGE)
+            log(
+                f"[TranslateCost] Qwen {film_name}: input={usage_snapshot['input']:,} token, "
+                f"output={usage_snapshot['output']:,} token, requests={usage_snapshot['requests']}, "
+                f"tam tinh={_qwen_cost_vnd():,.0f} VND"
+            )
+    if model == "qwen3.7-plus":
+        with _QWEN_USAGE_LOCK:
+            total = _qwen_cost_vnd()
+            reqs = _QWEN_USAGE["requests"]
+        log(f"[TranslateCost] TỔNG PHIÊN: {total:,.0f} VND ({reqs} requests; tối thiểu 20 VND/request)")
     return results
 
 

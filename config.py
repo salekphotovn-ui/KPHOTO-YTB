@@ -3,11 +3,29 @@
 from __future__ import annotations
 
 import sys
+import os
+import json
 from pathlib import Path
 
 
 APP_NAME = "Bili2YT V3"
 VERSION = "0.1.0"
+
+
+def load_local_provider_config() -> None:
+    """Load optional machine-local API settings without committing secrets."""
+    path = Path(__file__).resolve().parent / "config.local.json"
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return
+    if isinstance(data, dict):
+        if data.get("qwen_api_key"):
+            os.environ.setdefault("QWEN_API_KEY", str(data["qwen_api_key"]))
+        if data.get("qwen_base_url"):
+            os.environ.setdefault("QWEN_BASE_URL", str(data["qwen_base_url"]))
 
 # GitHub repository that owns the dedicated V3 releases.
 GITHUB_OWNER = ""
@@ -20,6 +38,9 @@ def app_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
+
+
+load_local_provider_config()
 
 
 BIN_DIR = app_dir() / "bin"

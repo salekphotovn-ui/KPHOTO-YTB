@@ -13,6 +13,10 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Đã đặt Google Translate Web làm model dịch mặc định trong luồng V3.
 - Đã giữ `htdemucs.yaml` làm model tách vocal mặc định.
 - Đang cài dependencies vào `Bili2YT_V3/venv` bằng Python 3.12.
+- Đã tích hợp Qwen3.7-Plus qua API OpenAI-compatible (`QWEN_BASE_URL`).
+- Đã hỗ trợ cấu hình máy-local bằng `config.local.json` (được loại khỏi Git).
+- Đã thêm log tiến độ dịch theo số cue và ước tính chi phí theo bảng giá Qwen.
+- Đã cập nhật prompt dịch theo phong cách tiếng Anh bản địa, ưu tiên ngữ cảnh và sắc thái nhân vật.
 
 ## Pipeline V3
 
@@ -32,6 +36,7 @@ Các bước cũng có thể chạy riêng từ giao diện.
 - `modules/separator.py`: tách vocal và xử lý video dài.
 - `modules/srt.py`: Whisper V3/KPHOTO tạo SRT.
 - `modules/translator.py`: Google Web và Gemini fallback/nâng cao.
+- `config.local.json`: cấu hình API cục bộ, không commit (tạo riêng trên từng máy).
 - `modules/muxer.py`: ghép vocal vào video.
 - `modules/exporter.py`: xuất video.
 - `run.bat`: khởi chạy bằng Python 3.12.
@@ -53,6 +58,8 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Test luồng tự động với một video ngắn trước.
 - Kiểm tra log realtime và file đầu ra.
 - Test trên máy sạch trước khi đóng gói cho nhân viên.
+- Kiểm tra Qwen3.7-Plus với SRT dài, tiến độ và chi phí trong nhật ký.
+- Kiểm tra QA ký tự Trung còn sót, cue thiếu và tên riêng không nhất quán.
 
 ## Quy tắc an toàn
 
@@ -60,3 +67,4 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Không xóa V2 hoặc bytecode V2 trong giai đoạn chuyển đổi.
 - Không commit API key, token hoặc file `.env`.
 - Trước thay đổi lớn, tạo Git checkpoint mới.
+- Không đưa `config.local.json`, API key hoặc token vào Git.

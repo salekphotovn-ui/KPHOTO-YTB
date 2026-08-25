@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import re
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -35,7 +36,8 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None):
         create_srt_batch(folder, engine="whisper-v3", log_callback=log_callback)
     if steps.get("translate"):
         log("[AutoStage] Đang dịch Google Translate Web")
-        translate_srt_batch(folder, "en", "google-web", "", log_callback=log_callback)
+        translate_srt_batch(folder, "en", os.getenv("TRANSLATOR_MODEL", "google-web"),
+                            os.getenv("QWEN_API_KEY", ""), log_callback=log_callback)
     if steps.get("mux"):
         log("[AutoStage] Đang ghép vocal")
         mux_folder(folder, log_callback=log_callback)
@@ -110,11 +112,13 @@ class TranslateDialog(QDialog):
         layout.addWidget(QLabel("Model dịch:"))
         self.google = QRadioButton("Google Translate Web (miễn phí)"); self.google.setChecked(True); layout.addWidget(self.google)
         self.gemini = QRadioButton("Gemini (cần API key)"); self.gemini.setEnabled(False); layout.addWidget(self.gemini)
+        self.qwen = QRadioButton("Qwen3.7-Plus (cần QWEN_API_KEY)"); layout.addWidget(self.qwen)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
-        return self.source.currentText(), self.target.currentData(), "google-web"
+        model = "qwen3.7-plus" if self.qwen.isChecked() else "google-web"
+        return self.source.currentText(), self.target.currentData(), model
 
 
 class TaskWorker(QObject):
@@ -497,7 +501,8 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         source, target, model = dialog.values()
-        self.start_task(translate_srt_batch, str(self.root), target, model, "", source_language=source)
+        api_key = os.getenv("QWEN_API_KEY", "") if model == "qwen3.7-plus" else ""
+        self.start_task(translate_srt_batch, str(self.root), target, model, api_key, source_language=source)
 
     def mux(self):
         self.start_task(mux_folder, str(self.root))

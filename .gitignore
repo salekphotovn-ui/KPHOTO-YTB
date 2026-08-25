@@ -10,3 +10,4 @@ download_test_tmp/
 .env
 test_audio/*.wav
 test_audio/*.flac
+config.local.json
