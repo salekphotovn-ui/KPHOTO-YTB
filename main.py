@@ -115,16 +115,20 @@ class TranslateDialog(QDialog):
         self.qwen = QRadioButton("Qwen3.7-Plus (cần QWEN_API_KEY)"); layout.addWidget(self.qwen)
         self.qwen38 = QRadioButton("Qwen3.8-Max (cần QWEN_API_KEY)"); layout.addWidget(self.qwen38)
         self.gemini36 = QRadioButton("Gemini 3.6 Flash-High (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini36)
+        self.gemini31 = QRadioButton("Gemini 3.1 Flash-Lite (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini31)
         if os.getenv("QWEN_MODEL", "qwen3.7-plus").lower() == "qwen3.8-max":
             self.qwen38.setChecked(True)
         if os.getenv("TRANSLATOR_MODEL", "").lower() == "gemini-3.6-flash-high":
             self.gemini36.setChecked(True)
+        if os.getenv("TRANSLATOR_MODEL", "").lower() == "gemini-3.1-flash-lite":
+            self.gemini31.setChecked(True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
         model = ("gemini-3.6-flash-high" if self.gemini36.isChecked() else
-                 ("qwen3.8-max" if self.qwen38.isChecked() else ("qwen3.7-plus" if self.qwen.isChecked() else "google-web")))
+                 ("gemini-3.1-flash-lite" if self.gemini31.isChecked() else
+                  ("qwen3.8-max" if self.qwen38.isChecked() else ("qwen3.7-plus" if self.qwen.isChecked() else "google-web"))))
         return self.source.currentText(), self.target.currentData(), model
 
 

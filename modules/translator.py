@@ -346,6 +346,8 @@ def translate_srt_batch(
             _QWEN_PRICING.update(input=285, output=1045, minimum=13)
         elif model == "gemini-3.6-flash-high":
             _QWEN_PRICING.update(input=500, output=1500, minimum=3)
+        elif model == "gemini-3.1-flash-lite":
+            _QWEN_PRICING.update(input=500, output=1500, minimum=10)
         else:
             _QWEN_PRICING.update(input=800, output=4000, minimum=20)
     source_files = sorted(
@@ -384,7 +386,7 @@ def translate_srt_batch(
         def translate_part(start: int, end: int) -> tuple[int, int, dict[int, str]]:
             log(f"[TranslateProgress] START {start + 1}-{end}/{len(cues)}")
             items = [{"id": index, "text": cues[index]["text"]} for index in range(start, end)]
-            if model.startswith("qwen") or model == "gemini-3.6-flash-high":
+            if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite"):
                 mapping = _qwen_translate(items, "Chinese", target_name, model, api_key)
             else:
                 mapping = _gemini_translate(items, "Chinese", target_name, main_model, api_key)
@@ -394,7 +396,7 @@ def translate_srt_batch(
             ]
             # Hybrid mode uses Pro only for incomplete/source-unchanged lines.
             for index in missing:
-                retry_fn = _qwen_translate if model.startswith("qwen") or model == "gemini-3.6-flash-high" else _gemini_translate
+                retry_fn = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite") else _gemini_translate
                 retry = retry_fn(
                     [{"id": index, "text": cues[index]["text"]}],
                     "Chinese",
@@ -441,7 +443,7 @@ def translate_srt_batch(
         results.append(str(output_path))
         log(f"[Translate] FILM_DONE {film_name} output={output_path.name}")
         log(f"[Translate] Đã lưu {output_path.name}")
-        if model.startswith("qwen") or model == "gemini-3.6-flash-high":
+        if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite"):
             with _QWEN_USAGE_LOCK:
                 usage_snapshot = dict(_QWEN_USAGE)
             log(
@@ -449,7 +451,7 @@ def translate_srt_batch(
                 f"output={usage_snapshot['output']:,} token, requests={usage_snapshot['requests']}, "
                 f"tam tinh={_qwen_cost_vnd():,.0f} VND"
             )
-    if model.startswith("qwen") or model == "gemini-3.6-flash-high":
+    if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite"):
         with _QWEN_USAGE_LOCK:
             total = _qwen_cost_vnd()
             reqs = _QWEN_USAGE["requests"]
