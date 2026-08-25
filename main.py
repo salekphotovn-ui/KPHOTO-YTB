@@ -324,6 +324,10 @@ class MainWindow(QMainWindow):
         if match:
             percent = max(0, min(100, round(float(match.group(1)))))
             self.progress.setValue(percent)
+            if "[TranslateProgress]" in text:
+                self.log_view.append("[Dịch Qwen] " + text.split("[TranslateProgress]", 1)[-1].strip())
+                self.log_view.ensureCursorVisible()
+                return
             # Keep the progress bar live without filling the log with repeats.
             if percent not in (0, 100) and percent % 5 != 0:
                 return
@@ -360,6 +364,12 @@ class MainWindow(QMainWindow):
             self.progress.setValue(100)
             self._last_download_percent = 100
         elif text.startswith("[BBDown]") or "[DownloadProgress] START" in text:
+            return
+        elif text.startswith("[TranslateProgress]"):
+            if text.upper().startswith("[TRANSLATEPROGRESS] START") and self.progress.value() == 0:
+                self.progress.setValue(1)
+            self.log_view.append("[Dịch] " + text.replace("[TranslateProgress]", "", 1).strip())
+            self.log_view.ensureCursorVisible()
             return
         elif text.startswith("[Separator]") and ("ERROR" not in text.upper() and "FAIL" not in text.upper()):
             return
