@@ -233,6 +233,7 @@ class MainWindow(QMainWindow):
         self.root = Path.cwd()
         self.thread = None
         self.worker = None
+        self.pending_task = None
         self.pending_download_links = []
         self.pending_download_dfn = "720P 高清, 720P"
         self._last_download_percent = None
@@ -673,7 +674,26 @@ class MainWindow(QMainWindow):
         if self.thread:
             try:
                 if self.thread.isRunning():
-                    QMessageBox.information(self, "Đang xử lý", "Một tác vụ khác đang chạy.")
+                    task_names = {
+                        export_folder: "Xuất video",
+                        translate_srt_batch: "Dịch sub",
+                        create_srt_batch: "Tạo SRT",
+                        separate_folder: "Tách vocal",
+                        mux_folder: "Ghép vocal",
+                    }
+                    task_name = task_names.get(task, getattr(task, "__name__", "Tác vụ tiếp theo"))
+                    if self.pending_task is None:
+                        self.pending_task = (task, args, kwargs)
+                        self.status.setText(f"Đã xếp hàng: {task_name}")
+                        QMessageBox.information(
+                            self, "Đã xếp hàng",
+                            f"Tác vụ hiện tại đang hoàn tất. {task_name} sẽ tự chạy ngay sau đó.",
+                        )
+                    else:
+                        QMessageBox.information(
+                            self, "Đang xử lý",
+                            "Đã có một tác vụ chờ. Hãy đợi tác vụ đó bắt đầu.",
+                        )
                     return
             except RuntimeError:
                 self.thread = None
@@ -694,8 +714,15 @@ class MainWindow(QMainWindow):
         self.status.setText("Đang xử lý...")
 
     def _task_thread_finished(self):
-        self.thread = None
-        self.worker = None
+        finished_thread = self.sender()
+        if self.thread is finished_thread or finished_thread is None:
+            self.thread = None
+            self.worker = None
+        pending = self.pending_task
+        self.pending_task = None
+        if pending:
+            task, args, kwargs = pending
+            QTimer.singleShot(0, lambda: self.start_task(task, *args, **kwargs))
 
     def task_done(self, result):
         self.status.setText("Hoàn tất")
