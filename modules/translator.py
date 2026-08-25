@@ -409,9 +409,9 @@ def translate_srt_batch(
         # Configurable concurrency: 5 is faster for Vilao while remaining
         # below the level that previously caused malformed transient responses.
         try:
-            configured_workers = int(os.getenv("QWEN_WORKERS", "5"))
+            configured_workers = int(os.getenv("QWEN_WORKERS", "10"))
         except ValueError:
-            configured_workers = 5
+            configured_workers = 10
         worker_count = min(max(1, configured_workers), max(1, len(parts)))
         log(f"[Translate] Chia {len(cues)} câu thành {len(parts)} phần xấp xỉ {batch_size} cue, chạy tối đa {worker_count} luồng")
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
