@@ -17,6 +17,9 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Đã hỗ trợ cấu hình máy-local bằng `config.local.json` (được loại khỏi Git).
 - Đã thêm log tiến độ dịch theo số cue và ước tính chi phí theo bảng giá Qwen.
 - Đã cập nhật prompt dịch theo phong cách tiếng Anh bản địa, ưu tiên ngữ cảnh và sắc thái nhân vật.
+- Hybrid đã được đặt làm model dịch mặc định: Qwen3.8-Max dịch chính, Gemini 3.6 Flash-High sửa cue nghi ngờ.
+- Hybrid dùng hai key riêng trong `config.local.json`: `qwen_api_key` và `gemini36_api_key`.
+- Đã thêm tính chi phí theo model, QA ký tự Trung/cue dài và retry batch để tránh phát sinh request hàng loạt.
 
 ## Pipeline V3
 
@@ -60,6 +63,7 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Test trên máy sạch trước khi đóng gói cho nhân viên.
 - Kiểm tra Qwen3.7-Plus với SRT dài, tiến độ và chi phí trong nhật ký.
 - Kiểm tra QA ký tự Trung còn sót, cue thiếu và tên riêng không nhất quán.
+- Kiểm tra Hybrid trên SRT dài: xác nhận Qwen dịch chính, Gemini sửa chọn lọc và log chi phí.
 
 ## Quy tắc an toàn
 
@@ -68,3 +72,4 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Không commit API key, token hoặc file `.env`.
 - Trước thay đổi lớn, tạo Git checkpoint mới.
 - Không đưa `config.local.json`, API key hoặc token vào Git.
+- Khi đóng gói cho nhân viên, chép riêng `config.local.json` cùng tool; không cần máy chủ trung gian.
