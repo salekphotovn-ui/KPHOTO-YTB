@@ -294,11 +294,19 @@ def _qwen_translate(items: list[dict], source: str, target: str, model: str, api
                     _QWEN_USAGE["input"] += int(usage.get("prompt_tokens", 0) or 0)
                     _QWEN_USAGE["output"] += int(usage.get("completion_tokens", 0) or 0)
                     _QWEN_USAGE["requests"] += 1
-                text = data["choices"][0]["message"].get("content", "")
+                choices = data.get("choices")
+                if not isinstance(choices, list) or not choices:
+                    raise RuntimeError(f"Vilao trả JSON thiếu choices: {list(data)[:8]}")
+                message = choices[0].get("message", {})
+                text = message.get("content", "") if isinstance(message, dict) else ""
+                if isinstance(text, list):
+                    text = "".join(str(part.get("text", "")) if isinstance(part, dict) else str(part) for part in text)
+                if not str(text).strip():
+                    raise RuntimeError("Vilao trả choices nhưng content rỗng")
                 return _parse_translation_response(text)
             if response.status_code not in (429, 500, 502, 503, 504):
                 raise RuntimeError(f"Qwen HTTP {response.status_code}: {response.text[:300]}")
-        except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
+        except (requests.RequestException, KeyError, IndexError, ValueError, RuntimeError) as exc:
             if attempt == 2:
                 raise RuntimeError(f"Qwen không phản hồi sau nhiều lần thử: {exc}") from exc
         time.sleep(2 ** attempt)
@@ -379,7 +387,9 @@ def translate_srt_batch(
                     mapping[index] = retry[index]
             return start, end, mapping
 
-        worker_count = min(10, max(1, len(parts)))
+        # Keep concurrency conservative: some marketplace providers return
+        # transient malformed JSON when many requests arrive simultaneously.
+        worker_count = min(3, max(1, len(parts)))
         log(f"[Translate] Chia {len(cues)} câu thành {len(parts)} phần, chạy tối đa {worker_count} luồng")
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(translate_part, start, end) for start, end in parts]
