@@ -84,6 +84,24 @@ def _is_whisper_hallucination(segment, words) -> bool:
     return False
 
 
+def _is_whisper_word_hallucination(word, segment) -> bool:
+    """Detect a malformed individual word timestamp inside a larger segment."""
+    token = str(getattr(word, "word", "") or "").strip()
+    token = token.strip("".join(_WHISPER_CUE_PUNCTUATION))
+    if not token:
+        return False
+    raw_span = max(0.0, float(word.end) - float(word.start))
+    probability = float(getattr(word, "probability", 1.0) or 0.0)
+    no_speech = float(getattr(segment, "no_speech_prob", 0.0) or 0.0)
+    if raw_span >= 15.0 and len(token) <= 4:
+        return True
+    return (
+        raw_span >= 8.0
+        and len(token) <= 6
+        and (no_speech >= 0.45 or probability <= 0.20)
+    )
+
+
 def _split_whisper_segment(segment, max_seconds: float = 5.5, max_chars: int = 18) -> list[dict]:
     """Build subtitle-sized cues from Whisper word timestamps."""
     words = [word for word in (getattr(segment, "words", None) or [])
@@ -103,6 +121,8 @@ def _split_whisper_segment(segment, max_seconds: float = 5.5, max_chars: int = 1
     cue_start = None
     cue_end = None
     for word in words:
+        if _is_whisper_word_hallucination(word, segment):
+            continue
         token = str(getattr(word, "word", "") or "").strip()
         if not token:
             continue
