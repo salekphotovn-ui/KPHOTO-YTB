@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
         self.pending_download_dfn = "720P 高清, 720P"
         self._last_download_percent = None
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
-        self.resize(1100, 720)
+        self.resize(1500, 950)
         self._build_ui_v3()
 
     def _build_ui_v3(self):
@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
             QPushButton#primary { background: #ffffff; color: #000000; border: none; font-weight: 800; }
             QListWidget, QTextEdit { background: #050505; border: none; }
             QListWidget::item { color: #ffd84d; padding: 5px 7px; border-bottom: 1px solid #292929; }
-            QTextEdit { color: #ffd84d; font-family: Consolas; font-size: 11px; }
+            QTextEdit { color: #ffd84d; font-family: Consolas; font-size: 14px; font-weight: 700; }
         """)
         brand = QLabel("Bili2YT"); brand.setObjectName("brand")
         eyebrow = QLabel("VIDEO WORKSPACE / V3"); eyebrow.setObjectName("eyebrow")
@@ -295,7 +295,29 @@ class MainWindow(QMainWindow):
             return
         elif text.startswith("[Separator]") and ("ERROR" not in text.upper() and "FAIL" not in text.upper()):
             return
-        self.log_view.append(text)
+        summary = None
+        patterns = (
+            (r"\[SeparateProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang xử lý: {}"),
+            (r"\[SeparateProgress\]\s+DONE\s+\d+/\d+\s+(.+)$", "Đã xử lý xong: {}"),
+            (r"\[SrtProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang xử lý: {}"),
+            (r"\[SrtProgress\]\s+DONE\s+\d+/\d+\s+(.+)$", "Đã xử lý xong: {}"),
+            (r"\[Translate\]\s+FILM\s+(.+?)\s+total=", "Đang xử lý: {}"),
+            (r"\[Translate\]\s+FILM_DONE\s+(.+?)\s+output=", "Đã xử lý xong: {}"),
+            (r"\[MuxProgress\]\s+VIDEO_START\s+(.+)$", "Đang xử lý: {}"),
+            (r"\[ExportProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang xử lý: {}"),
+            (r"\[ExportProgress\]\s+DONE\s+\d+/\d+", "Đã xử lý xong video"),
+        )
+        for pattern, template in patterns:
+            found = re.search(pattern, text, re.IGNORECASE)
+            if found:
+                summary = template.format(found.group(1).strip() if found.groups() else "")
+                break
+        if "FAIL" in text.upper() or "LỖI" in text.upper() or "ERROR" in text.upper():
+            summary = "LỖI: " + text.split("FAIL", 1)[-1].strip(" :")
+        if text.startswith("[AutoStage]") or text.startswith("[Download]"):
+            summary = text
+        if summary:
+            self.log_view.append(summary)
         self.log_view.ensureCursorVisible()
 
     def start_task(self, task, *args, **kwargs):
@@ -407,6 +429,7 @@ def main():
     app.setStyleSheet("QMainWindow,QWidget{background:#050505;color:#fff} QPushButton{padding:8px 12px}")
     window = MainWindow()
     window.show()
+    window.showMaximized()
     return app.exec()
 
 
