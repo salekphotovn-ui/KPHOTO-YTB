@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, Qt, QUrl, QSizeF, QRectF, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, QSizeF, QRectF, pyqtSignal
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
     QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
     QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
+    QGraphicsProxyWidget,
 )
 
 from modules.separator import separate_folder
@@ -162,6 +163,41 @@ class PreviewVideoView(QGraphicsView):
         self.resized.emit()
 
 
+class DraggableSubtitleProxy(QGraphicsProxyWidget):
+    def __init__(self):
+        super().__init__()
+        self._drag_offset = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_offset is not None:
+            target = event.scenePos() - self._drag_offset
+            bounds = self.scene().sceneRect() if self.scene() else QRectF()
+            max_x = max(bounds.left(), bounds.right() - self.size().width())
+            max_y = max(bounds.top(), bounds.bottom() - self.size().height())
+            target.setX(min(max(target.x(), bounds.left()), max_x))
+            target.setY(min(max(target.y(), bounds.top()), max_y))
+            self.setPos(target)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._drag_offset is not None:
+            self._drag_offset = None
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
 class DownloadDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -271,13 +307,14 @@ class MainWindow(QMainWindow):
         self.subtitle_label = QLabel("")
         self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
         self.subtitle_label.setWordWrap(True)
-        self.subtitle_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.subtitle_label.setContentsMargins(8, 0, 8, 0)
         self.subtitle_label.setStyleSheet(
             "QLabel { color:white; background:transparent; border:none; "
             "font-size:22px; font-weight:800; padding:2px; }"
         )
-        self.subtitle_proxy = self.video_scene.addWidget(self.subtitle_label)
+        self.subtitle_proxy = DraggableSubtitleProxy()
+        self.subtitle_proxy.setWidget(self.subtitle_label)
+        self.video_scene.addItem(self.subtitle_proxy)
         self.subtitle_proxy.setZValue(10)
         self.subtitle_proxy.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.subtitle_proxy.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -293,6 +330,10 @@ class MainWindow(QMainWindow):
         self.media_player.playbackStateChanged.connect(self._preview_state_changed)
         self.media_player.mediaStatusChanged.connect(self._preview_media_status_changed)
         self.media_player.errorOccurred.connect(self._preview_error)
+        self.subtitle_timer = QTimer(self)
+        self.subtitle_timer.setInterval(50)
+        self.subtitle_timer.timeout.connect(self._refresh_preview_subtitle)
+        self.subtitle_timer.start()
         controls = QHBoxLayout()
         self.preview_play = QPushButton("▶")
         self.preview_play.setEnabled(False)
@@ -490,6 +531,13 @@ class MainWindow(QMainWindow):
         self.preview_time.setText(
             f"{self._format_preview_time(position)} / {self._format_preview_time(self.media_player.duration())}"
         )
+        self._update_preview_subtitle(position)
+
+    def _refresh_preview_subtitle(self):
+        if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self._update_preview_subtitle(self.media_player.position())
+
+    def _update_preview_subtitle(self, position: int):
         subtitle = ""
         for start, end, text in self.preview_subtitles:
             if start <= position <= end:

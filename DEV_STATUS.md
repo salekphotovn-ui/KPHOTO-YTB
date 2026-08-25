@@ -25,6 +25,7 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 - Khi chọn phim, trình phát giải mã im lặng khung hình đầu tiên rồi tự dừng để khung xem không còn màu đen.
 - Video và phụ đề được vẽ chung bằng `QGraphicsVideoItem`, tránh lớp video Windows che mất chữ tiếng Anh.
 - Sub tiếng Anh không có nền, mặc định nằm sát phía trên sub Trung đã cháy vào hình và có thể giữ chuột kéo trực tiếp để đổi vị trí.
+- Sub xem trước được đồng bộ theo timer 50 ms; thao tác kéo dùng proxy chuột riêng để hoạt động ổn định trên Windows.
 
 ## Pipeline V3
 
