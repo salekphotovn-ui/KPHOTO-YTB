@@ -81,6 +81,7 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Kiểm tra Hybrid trên SRT dài: xác nhận Qwen dịch chính, Gemini sửa chọn lọc và log chi phí.
 - Mở giao diện và kiểm tra hình/âm thanh, kéo timeline, đổi qua lại nhiều phim và phụ đề tiếng Anh tương ứng.
 - Whisper video dài dùng chunk WAV PCM mono 16 kHz và xóa từng chunk sau xử lý để tránh lỗi encoder FLAC `invalid block size`.
+- Ghép Whisper video dài chỉ giữ vùng lõi mỗi chunk; overlap 8 giây chỉ làm ngữ cảnh, không tạo cue trùng ở mốc 30 phút.
 
 ## Quy tắc an toàn
 

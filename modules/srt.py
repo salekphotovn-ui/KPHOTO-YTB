@@ -300,8 +300,11 @@ def _run_whisper_v3_long(audio_path: Path, log_callback, model, duration: float)
     if checkpoint.is_file():
         try:
             saved = json.loads(checkpoint.read_text(encoding="utf-8"))
-            combined = saved.get("segments", [])
-            completed = set(saved.get("completed", []))
+            # Older checkpoints kept both sides of the 8-second overlap and
+            # can reintroduce duplicate cues at 30-minute boundaries.
+            if saved.get("version") == 2:
+                combined = saved.get("segments", [])
+                completed = set(saved.get("completed", []))
         except (OSError, ValueError, TypeError):
             pass
     work_dir = Path(tempfile.mkdtemp(prefix="bili2yt_whisper_", dir=str(audio_path.parent)))
@@ -312,6 +315,8 @@ def _run_whisper_v3_long(audio_path: Path, log_callback, model, duration: float)
                 continue
             start = max(0.0, index * chunk_seconds - (overlap if index else 0.0))
             end = min(duration, (index + 1) * chunk_seconds + (overlap if index + 1 < count else 0.0))
+            core_start = index * chunk_seconds
+            core_end = min(duration, (index + 1) * chunk_seconds)
             length = max(0.0, end - start)
             # PCM WAV avoids sporadic FFmpeg FLAC encoder failures such as
             # "invalid block size: 15" on long sources. Keep only one chunk
@@ -336,12 +341,20 @@ def _run_whisper_v3_long(audio_path: Path, log_callback, model, duration: float)
                         item = dict(local_cue)
                         item["start"] = float(item["start"]) + start
                         item["end"] = float(item["end"]) + start
-                        if index == 0 or item["start"] >= index * chunk_seconds:
+                        if item["start"] >= core_start and (
+                            index + 1 == count or item["start"] < core_end
+                        ):
                             combined.append(item)
             finally:
                 chunk_path.unlink(missing_ok=True)
             completed.add(index)
-            checkpoint.write_text(json.dumps({"completed": sorted(completed), "segments": combined}, ensure_ascii=False), encoding="utf-8")
+            checkpoint.write_text(
+                json.dumps(
+                    {"version": 2, "completed": sorted(completed), "segments": combined},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
             log_callback(f"[SrtProgress] CHUNK {index + 1}/{count}")
         checkpoint.unlink(missing_ok=True)
         return {"language": "zh", "segments": sorted(combined, key=lambda item: item["start"])}
