@@ -39,6 +39,13 @@ def run_auto_pipeline(folder: str, log_callback=None):
     return export_folder(folder, log_callback=log_callback)
 
 
+def run_download_and_auto_pipeline(folder: str, urls: list[str], dfn_priority: str, log_callback=None):
+    if log_callback:
+        log_callback(f"[AutoStage] Đang tải {len(urls)} link")
+    download_multiple(urls, dfn_priority=dfn_priority, output_dir=folder, log_callback=log_callback)
+    return run_auto_pipeline(folder, log_callback=log_callback)
+
+
 class TaskWorker(QObject):
     log = pyqtSignal(str)
     done = pyqtSignal(object)
@@ -97,6 +104,8 @@ class MainWindow(QMainWindow):
         self.root = Path.cwd()
         self.thread = None
         self.worker = None
+        self.pending_download_links = []
+        self.pending_download_dfn = "720P 高清, 720P"
         self._last_download_percent = None
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1100, 720)
@@ -223,9 +232,10 @@ class MainWindow(QMainWindow):
         links, dfn_priority = dialog.values()
         if not links:
             return
-        output_dir = str(self.root)
+        self.pending_download_links = links
+        self.pending_download_dfn = dfn_priority
         self.write_log(f"[Download] Đã nhận dạng {len(links)} link")
-        self.start_task(download_multiple, links, dfn_priority=dfn_priority, output_dir=output_dir)
+        self.write_log("[Download] Đã xếp hàng, bấm Chạy tự động để bắt đầu tải")
 
     def write_log(self, message):
         text = str(message)
@@ -313,6 +323,12 @@ class MainWindow(QMainWindow):
         self.start_task(concat_videos, files)
 
     def auto_run(self):
+        if self.pending_download_links:
+            urls = self.pending_download_links
+            dfn = self.pending_download_dfn
+            self.pending_download_links = []
+            self.start_task(run_download_and_auto_pipeline, str(self.root), urls, dfn)
+            return
         self.start_task(run_auto_pipeline, str(self.root))
 
     def create_srt(self):
