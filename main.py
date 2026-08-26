@@ -443,7 +443,7 @@ class DownloadDialog(QDialog):
 
     def login(self):
         bbdown_login()
-        self.login_status.setText("Đã đăng nhập" if has_login_session() else "Chưa đăng nhập")
+        self.login_status.setText("Đã mở Edge riêng - hãy quét QR")
 
     def values(self):
         return [line.strip() for line in self.urls.toPlainText().splitlines() if line.strip()], self.dfn.currentData()

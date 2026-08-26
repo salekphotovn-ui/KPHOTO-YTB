@@ -144,3 +144,5 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 
 - yt-dlp mặc định không đọc cookie Chrome nên không còn vướng lỗi giải mã DPAPI; chỉ bật lại khi chủ động đặt `YTDLP_USE_BROWSER_COOKIES=1`.
 - Toàn bộ kết nối tải được ép IPv4. aria2c thử 8 rồi 4 kết nối; nếu CDN Akamai từ chối aria2c, tool tự chuyển sang downloader native 3 luồng trước khi dự phòng sang BBDown.
+- Nút `Đăng nhập QR` mở một profile Microsoft Edge riêng của V3; yt-dlp lấy cookie trực tiếp qua giao thức điều khiển trình duyệt và ghi file Netscape cục bộ, không giải mã kho cookie Chrome bằng DPAPI.
+- Watchdog kiểm tra dung lượng file tải mỗi giây; mặc định 40 giây không có byte mới sẽ dừng phương thức đang treo và chuyển từ aria2c sang native, sau cùng mới sang BBDown.
