@@ -497,7 +497,7 @@ def _extract_original_audio(video_path: Path, log_callback) -> tuple[Path, Path]
 
 def create_srt_batch(
     root_path: str, engine: str = "kphoto-local", source_mode: str = "vocals",
-    log_callback=print,
+    ocr_regions: dict | None = None, log_callback=print,
 ) -> list[str]:
     root = Path(root_path)
     source_mode = str(source_mode or "vocals").strip().lower()
@@ -528,8 +528,9 @@ def create_srt_batch(
                     from .ocr_subtitles import run_rapidocr_video
                 except ImportError:
                     from ocr_subtitles import run_rapidocr_video
-
-                transcript = run_rapidocr_video(source_path, log_callback)
+                regions = ocr_regions or {}
+                region = regions.get(str(source_path.resolve()), regions.get("__default__"))
+                transcript = run_rapidocr_video(source_path, log_callback, roi=region)
                 audio_path = None
             elif source_mode == "original":
                 audio_path, work_dir = _extract_original_audio(source_path, log_callback)

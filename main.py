@@ -6,7 +6,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, QSizeF, QRectF, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, QSizeF, QRectF, QPointF, pyqtSignal
+from PyQt6.QtGui import QColor, QBrush, QPen
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
@@ -14,7 +15,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
     QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
     QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
-    QGraphicsProxyWidget, QButtonGroup,
+    QGraphicsProxyWidget, QGraphicsRectItem, QButtonGroup,
 )
 
 from modules.separator import separate_folder
@@ -172,10 +173,133 @@ class TaskWorker(QObject):
 
 class PreviewVideoView(QGraphicsView):
     resized = pyqtSignal()
+    ocrDragStarted = pyqtSignal(object)
+    ocrDragMoved = pyqtSignal(object)
+    ocrDragFinished = pyqtSignal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.ocr_drawing = False
+        self._ocr_dragging = False
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.resized.emit()
+
+    def mousePressEvent(self, event):
+        if self.ocr_drawing and event.button() == Qt.MouseButton.LeftButton:
+            point = self.mapToScene(event.position().toPoint())
+            self._ocr_dragging = True
+            self.ocrDragStarted.emit(point)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._ocr_dragging:
+            self.ocrDragMoved.emit(self.mapToScene(event.position().toPoint()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._ocr_dragging and event.button() == Qt.MouseButton.LeftButton:
+            self._ocr_dragging = False
+            self.ocr_drawing = False
+            self.ocrDragFinished.emit(self.mapToScene(event.position().toPoint()))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+class OcrRegionItem(QGraphicsRectItem):
+    """Movable OCR box with resizable edges and corners."""
+
+    def __init__(self, changed_callback):
+        super().__init__()
+        self.changed_callback = changed_callback
+        self.allowed_rect = QRectF()
+        self._resize_edges = set()
+        self._press_scene_pos = QPointF()
+        self._press_rect = QRectF()
+        self.setPen(QPen(QColor(0, 255, 140), 2, Qt.PenStyle.DashLine))
+        self.setBrush(QBrush(QColor(0, 255, 140, 28)))
+        self.setZValue(30)
+        self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setToolTip("Kéo bên trong để di chuyển; kéo cạnh hoặc góc để đổi kích thước vùng OCR")
+
+    def scene_box(self) -> QRectF:
+        mapped = self.mapRectToScene(self.rect())
+        return mapped.boundingRect() if hasattr(mapped, "boundingRect") else QRectF(mapped)
+
+    def set_scene_box(self, box: QRectF):
+        box = box.normalized()
+        self.setPos(box.topLeft())
+        self.setRect(0, 0, box.width(), box.height())
+
+    def _edges_at(self, position: QPointF) -> set[str]:
+        margin = 12.0
+        rect = self.rect()
+        edges = set()
+        if abs(position.x() - rect.left()) <= margin:
+            edges.add("left")
+        if abs(position.x() - rect.right()) <= margin:
+            edges.add("right")
+        if abs(position.y() - rect.top()) <= margin:
+            edges.add("top")
+        if abs(position.y() - rect.bottom()) <= margin:
+            edges.add("bottom")
+        return edges
+
+    def hoverMoveEvent(self, event):
+        edges = self._edges_at(event.pos())
+        if edges in ({"left", "top"}, {"right", "bottom"}):
+            cursor = Qt.CursorShape.SizeFDiagCursor
+        elif edges in ({"right", "top"}, {"left", "bottom"}):
+            cursor = Qt.CursorShape.SizeBDiagCursor
+        elif "left" in edges or "right" in edges:
+            cursor = Qt.CursorShape.SizeHorCursor
+        elif "top" in edges or "bottom" in edges:
+            cursor = Qt.CursorShape.SizeVerCursor
+        else:
+            cursor = Qt.CursorShape.SizeAllCursor
+        self.setCursor(cursor)
+        super().hoverMoveEvent(event)
+
+    def mousePressEvent(self, event):
+        self._resize_edges = self._edges_at(event.pos())
+        self._press_scene_pos = event.scenePos()
+        self._press_rect = self.scene_box()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not self._resize_edges:
+            super().mouseMoveEvent(event)
+            return
+        delta = event.scenePos() - self._press_scene_pos
+        box = QRectF(self._press_rect)
+        if "left" in self._resize_edges:
+            box.setLeft(box.left() + delta.x())
+        if "right" in self._resize_edges:
+            box.setRight(box.right() + delta.x())
+        if "top" in self._resize_edges:
+            box.setTop(box.top() + delta.y())
+        if "bottom" in self._resize_edges:
+            box.setBottom(box.bottom() + delta.y())
+        box = box.normalized().intersected(self.allowed_rect)
+        if box.width() >= 40 and box.height() >= 28:
+            self.set_scene_box(box)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        box = self.scene_box().intersected(self.allowed_rect)
+        if box.width() >= 40 and box.height() >= 28:
+            self.set_scene_box(box)
+        self._resize_edges = set()
+        self.changed_callback()
 
 
 class DraggableSubtitleProxy(QGraphicsProxyWidget):
@@ -268,6 +392,8 @@ class MainWindow(QMainWindow):
         self._subtitle_user_position = False
         self._preview_loading_frame = False
         self._preview_was_muted = False
+        self._ocr_draw_origin = None
+        self._updating_ocr_region = False
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1200, 780)
         self._build_ui_v3()
@@ -341,7 +467,13 @@ class MainWindow(QMainWindow):
         self.subtitle_proxy.setCursor(Qt.CursorShape.OpenHandCursor)
         self.subtitle_proxy.setToolTip("Giữ chuột và kéo để đổi vị trí phụ đề tiếng Anh")
         self.subtitle_proxy.moved.connect(self._subtitle_was_moved)
+        self.ocr_region_item = OcrRegionItem(self._ocr_region_changed)
+        self.ocr_region_item.hide()
+        self.video_scene.addItem(self.ocr_region_item)
         self.video_view.resized.connect(self._resize_preview_scene)
+        self.video_view.ocrDragStarted.connect(self._ocr_drag_started)
+        self.video_view.ocrDragMoved.connect(self._ocr_drag_moved)
+        self.video_view.ocrDragFinished.connect(self._ocr_drag_finished)
         preview_layout.addWidget(self.video_view, 1)
         self.audio_output = QAudioOutput(self)
         self.media_player = QMediaPlayer(self)
@@ -363,6 +495,9 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.preview_play)
         for label in ("+ Blur", "+ Logo", "+ Khung"):
             controls.addWidget(QPushButton(label))
+        self.ocr_region_button = QPushButton("▣ Khung OCR")
+        self.ocr_region_button.clicked.connect(self._enable_ocr_region_draw)
+        controls.addWidget(self.ocr_region_button)
         self.preview_timeline = QSlider(Qt.Orientation.Horizontal)
         self.preview_timeline.setRange(0, 0)
         self.preview_timeline.sliderMoved.connect(self._seek_preview)
@@ -484,8 +619,11 @@ class MainWindow(QMainWindow):
         native_width = native_size.width() if native_size.width() > 0 else 16
         native_height = native_size.height() if native_size.height() > 0 else 9
         display_scale = min(width / native_width, height / native_height)
+        display_width = native_width * display_scale
         display_height = native_height * display_scale
+        display_left = (width - display_width) / 2
         display_top = (height - display_height) / 2
+        video_display_rect = QRectF(display_left, display_top, display_width, display_height)
         video_config = (self.overlay_configs.get(str(self.preview_video_path.resolve()), {})
                         if self.preview_video_path else {})
         subtitle_y_ratio = float(video_config.get("subtitle_y_ratio", 0.86))
@@ -498,6 +636,79 @@ class MainWindow(QMainWindow):
         subtitle_y = subtitle_center_ratio * height - subtitle_height / 2
         subtitle_y = min(max(0, subtitle_y), height - subtitle_height)
         self.subtitle_proxy.setGeometry(QRectF(35, subtitle_y, subtitle_width, subtitle_height))
+        self.ocr_region_item.allowed_rect = video_display_rect
+        if self.preview_video_path:
+            region = video_config.get("ocr_roi")
+            if region and len(region) == 4:
+                x, y, region_width, region_height = (float(value) for value in region)
+                box = QRectF(
+                    display_left + x * display_width,
+                    display_top + y * display_height,
+                    region_width * display_width,
+                    region_height * display_height,
+                ).intersected(video_display_rect)
+                self._updating_ocr_region = True
+                self.ocr_region_item.set_scene_box(box)
+                self.ocr_region_item.show()
+                self._updating_ocr_region = False
+            else:
+                self.ocr_region_item.hide()
+
+    def _enable_ocr_region_draw(self):
+        if not self.preview_video_path:
+            QMessageBox.information(self, "Khung OCR", "Hãy chọn một video ở danh sách bên trái trước.")
+            return
+        self.video_view.ocr_drawing = True
+        self.video_view.setCursor(Qt.CursorShape.CrossCursor)
+        self.status.setText("Giữ chuột và kéo trên video để tạo khung OCR.")
+
+    def _ocr_drag_started(self, point):
+        allowed = self.ocr_region_item.allowed_rect
+        self._ocr_draw_origin = QPointF(
+            min(max(point.x(), allowed.left()), allowed.right()),
+            min(max(point.y(), allowed.top()), allowed.bottom()),
+        )
+        self.ocr_region_item.set_scene_box(QRectF(self._ocr_draw_origin, QSizeF(1, 1)))
+        self.ocr_region_item.show()
+
+    def _ocr_drag_moved(self, point):
+        if self._ocr_draw_origin is None:
+            return
+        allowed = self.ocr_region_item.allowed_rect
+        current = QPointF(
+            min(max(point.x(), allowed.left()), allowed.right()),
+            min(max(point.y(), allowed.top()), allowed.bottom()),
+        )
+        self.ocr_region_item.set_scene_box(QRectF(self._ocr_draw_origin, current).normalized())
+
+    def _ocr_drag_finished(self, point):
+        self._ocr_drag_moved(point)
+        self._ocr_draw_origin = None
+        self.video_view.unsetCursor()
+        if self.ocr_region_item.scene_box().width() < 40 or self.ocr_region_item.scene_box().height() < 28:
+            self.ocr_region_item.hide()
+            self.status.setText("Khung OCR quá nhỏ; hãy kéo lại.")
+            return
+        self._ocr_region_changed()
+
+    def _ocr_region_changed(self):
+        if self._updating_ocr_region or not self.preview_video_path or not self.ocr_region_item.isVisible():
+            return
+        allowed = self.ocr_region_item.allowed_rect
+        box = self.ocr_region_item.scene_box().intersected(allowed)
+        if allowed.width() <= 0 or allowed.height() <= 0:
+            return
+        roi = [
+            max(0.0, min(1.0, (box.left() - allowed.left()) / allowed.width())),
+            max(0.0, min(1.0, (box.top() - allowed.top()) / allowed.height())),
+            max(0.01, min(1.0, box.width() / allowed.width())),
+            max(0.01, min(1.0, box.height() / allowed.height())),
+        ]
+        config = self.overlay_configs.setdefault(str(self.preview_video_path.resolve()), {})
+        config["ocr_roi"] = roi
+        self.status.setText(
+            f"Đã lưu khung OCR {roi[2] * 100:.1f}% × {roi[3] * 100:.1f}% cho {self.preview_video_path.name}"
+        )
 
     def _subtitle_was_moved(self):
         self._subtitle_user_position = True
@@ -863,7 +1074,18 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         engine, source_mode = dialog.values()
-        self.start_task(create_srt_batch, str(self.root), engine, source_mode)
+        ocr_regions = None
+        if engine == "rapidocr-v6":
+            ocr_regions = {
+                path: list(config["ocr_roi"])
+                for path, config in self.overlay_configs.items()
+                if config.get("ocr_roi")
+            }
+            if self.preview_video_path:
+                selected = self.overlay_configs.get(str(self.preview_video_path.resolve()), {}).get("ocr_roi")
+                if selected:
+                    ocr_regions["__default__"] = list(selected)
+        self.start_task(create_srt_batch, str(self.root), engine, source_mode, ocr_regions)
 
     def translate(self):
         if self.root == Path.cwd() or not self.root.exists():

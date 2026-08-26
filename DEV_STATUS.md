@@ -83,6 +83,7 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Whisper video dài dùng chunk WAV PCM mono 16 kHz và xóa từng chunk sau xử lý để tránh lỗi encoder FLAC `invalid block size`.
 - Ghép Whisper video dài chỉ giữ vùng lõi mỗi chunk; overlap 8 giây chỉ làm ngữ cảnh, không tạo cue trùng ở mốc 30 phút.
 - Thêm PP-OCRv6 Small qua RapidOCR/ONNX để tạo `zh.srt` trực tiếp từ phụ đề Trung đóng trên hình; quét vùng dưới video mỗi 0,5 giây, có tiến độ và dùng CUDA khi khả dụng.
+- Khung OCR được vẽ trực tiếp trên xem trước, kéo để tạo, di chuyển và co giãn bằng 4 cạnh/4 góc; lưu ROI theo tỷ lệ video và dùng làm mặc định cho batch.
 
 ## Quy tắc an toàn
 

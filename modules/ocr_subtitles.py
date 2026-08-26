@@ -60,13 +60,21 @@ def _load_engine(log_callback):
     return _OCR_ENGINE
 
 
-def _read_subtitle_text(engine, frame) -> tuple[str, float]:
+def _read_subtitle_text(engine, frame, roi=None) -> tuple[str, float]:
     import cv2
 
     height, width = frame.shape[:2]
-    # Dialogue subtitles are normally in the lower half. Cropping also avoids
-    # permanent channel names/warnings near the top of unrelated videos.
-    crop = frame[int(height * 0.52):height]
+    manual_region = bool(roi and len(roi) == 4)
+    if manual_region:
+        x, y, width_ratio, height_ratio = (float(value) for value in roi)
+        left = max(0, min(width - 1, round(x * width)))
+        top = max(0, min(height - 1, round(y * height)))
+        right = max(left + 1, min(width, round((x + width_ratio) * width)))
+        bottom = max(top + 1, min(height, round((y + height_ratio) * height)))
+        crop = frame[top:bottom, left:right]
+    else:
+        # Automatic fallback for videos where the user did not draw a box.
+        crop = frame[int(height * 0.52):height]
     target_width = min(960, crop.shape[1])
     if crop.shape[1] != target_width:
         target_height = max(1, round(crop.shape[0] * target_width / crop.shape[1]))
@@ -90,7 +98,7 @@ def _read_subtitle_text(engine, frame) -> tuple[str, float]:
         center_x = (min(xs) + max(xs)) / 2
         center_y = (min(ys) + max(ys)) / 2
         # Retain centred dialogue lines and reject side labels/UI elements.
-        if center_y < crop_height * 0.28:
+        if not manual_region and center_y < crop_height * 0.28:
             continue
         if not (crop_width * 0.08 <= center_x <= crop_width * 0.92):
             continue
@@ -118,7 +126,7 @@ def _postprocess_segments(segments: list[dict], sample_interval: float) -> list[
     return cleaned
 
 
-def run_rapidocr_video(video_path: Path, log_callback=print) -> dict:
+def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
     """Sample video frames and turn stable burned-in Chinese text into cues."""
     import cv2
 
@@ -138,6 +146,11 @@ def run_rapidocr_video(video_path: Path, log_callback=print) -> dict:
     log_callback(
         f"[OCR] Quet phu de tren hinh moi {sample_interval:.2f}s, video {duration / 60:.1f} phut"
     )
+    if roi and len(roi) == 4:
+        log_callback(
+            f"[OCR] Dung khung da chon: x={roi[0]:.3f}, y={roi[1]:.3f}, "
+            f"w={roi[2]:.3f}, h={roi[3]:.3f}"
+        )
     segments = []
     current_text = ""
     current_start = 0.0
@@ -157,7 +170,7 @@ def run_rapidocr_video(video_path: Path, log_callback=print) -> dict:
                 frame_index += 1
                 continue
             timestamp = frame_index / fps
-            observed, _confidence = _read_subtitle_text(engine, frame)
+            observed, _confidence = _read_subtitle_text(engine, frame, roi=roi)
             if observed and current_text and _similar_text(observed, current_text):
                 current_last_seen = timestamp
                 if len(observed) > len(current_text):
