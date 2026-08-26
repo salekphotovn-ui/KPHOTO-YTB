@@ -29,7 +29,7 @@ from modules.rename import auto_rename_folder
 from modules.concat import concat_videos
 
 
-def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, ocr_regions=None):
+def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, ocr_regions=None, overlay_configs=None):
     def log(message):
         if log_callback:
             log_callback(message)
@@ -60,7 +60,7 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
         mux_folder(folder, log_callback=log_callback)
     if steps.get("export"):
         log("[AutoStage] Đang xuất video")
-        return export_folder(folder, log_callback=log_callback)
+        return export_folder(folder, log_callback=log_callback, overlay_configs=overlay_configs)
     log("[AutoStage] Đã hoàn tất các bước được chọn")
     return folder
 
@@ -79,7 +79,7 @@ class AutoProcessDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn các bước muốn chạy (mặc định đã chọn hết):"))
         self.checks = {}
-        items = [("download", "Tải video (link đã nhập)"), ("separate", "Tách vocal"), ("srt", "Quét SRT bằng PP-OCRv6 (timeline 0,1 giây)"), ("translate", "Dịch phụ đề bằng Gemini 3.6 Flash-High"), ("mux", "Ghép vocal"), ("export", "Xuất video")]
+        items = [("download", "Tải video (link đã nhập)"), ("separate", "Tách vocal"), ("srt", "Quét SRT bằng PP-OCRv6 (timeline 0,1 giây)"), ("translate", "Dịch phụ đề bằng Gemini 3.6 Flash-High"), ("export", "Xuất video (tự ghép vocal local)")]
         for key, label in items:
             check = QCheckBox(label)
             check.setChecked(key != "download" or has_pending_download)
@@ -1392,7 +1392,7 @@ class MainWindow(QMainWindow):
                 return
             steps = {"download": False, "separate": False, "srt": True,
                      "translate": bool(self.auto_plan.get("translate")),
-                     "mux": bool(self.auto_plan.get("mux")), "export": False}
+                     "mux": False, "export": False}
             regions = {
                 path: list(config["ocr_roi"])
                 for path, config in self.overlay_configs.items()
@@ -1404,7 +1404,8 @@ class MainWindow(QMainWindow):
                      "translate": False, "mux": False,
                      "export": bool(self.auto_plan.get("export"))}
             if steps["export"]:
-                self.start_task(run_auto_pipeline, str(self.root), steps)
+                self.start_task(run_auto_pipeline, str(self.root), steps,
+                                overlay_configs={path: dict(config) for path, config in self.overlay_configs.items()})
             else:
                 self.auto_plan = None
                 self._set_auto_button("Chạy tự động  ·  0 phim")

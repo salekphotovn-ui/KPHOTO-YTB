@@ -38,6 +38,16 @@ def _subtitle_path(video_path: Path) -> Path | None:
     return None
 
 
+def _local_vocal_path(video_path: Path) -> Path | None:
+    """Find a separated vocal track belonging to this video."""
+    found = []
+    for path in video_path.parent.iterdir():
+        if path.is_file() and path.suffix.lower() in {".wav", ".flac", ".mp3", ".m4a"}:
+            if "(vocals)" in path.name.casefold() and path.stem.casefold().startswith(video_path.stem.casefold()):
+                found.append(path)
+    return sorted(found, key=lambda p: p.name.casefold())[0] if found else None
+
+
 def _duration_seconds(video_path: Path) -> float:
     try:
         result = subprocess.run(
@@ -141,14 +151,23 @@ def export_video(
         source, blur_boxes, logo_path, subtitle_y_ratio, logo_box, blur_strength
     )
     encoder = _encoder()
+    vocal = _local_vocal_path(source)
     command = [FFMPEG_PATH, "-y", "-progress", "pipe:1", "-nostats", "-i", str(source)]
-    command += ["-filter_complex", filters, "-map", "[vout]", "-map", "0:a?", "-c:v", encoder]
+    if vocal:
+        command += ["-i", str(vocal)]
+    command += ["-filter_complex", filters, "-map", "[vout]"]
+    command += ["-map", "1:a:0" if vocal else "0:a?", "-c:v", encoder]
     if encoder == "h264_nvenc":
         command += ["-preset", "p4", "-cq", "24", "-pix_fmt", "yuv420p"]
     else:
         command += ["-preset", "medium", "-crf", "23"]
-    command += ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)]
+    command += ["-c:a", "aac", "-b:a", "192k"]
+    if vocal:
+        command += ["-shortest"]
+    command += ["-movflags", "+faststart", str(output)]
     duration = _duration_seconds(source)
+    if log_callback:
+        log_callback(f"[Export] Audio track: {vocal.name}" if vocal else "[Export] Audio track: original (no local vocal)")
     if log_callback:
         log_callback(f"[Export] Đang xử lý: {source.name} ({encoder})")
     process = subprocess.Popen(
