@@ -101,3 +101,9 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Trước thay đổi lớn, tạo Git checkpoint mới.
 - Không đưa `config.local.json`, API key hoặc token vào Git.
 - Khi đóng gói cho nhân viên, chép riêng `config.local.json` cùng tool; không cần máy chủ trung gian.
+
+## Tối ưu tốc độ OCR 26/08
+
+- Bộ lọc khung hình chỉ theo dõi chữ sáng, ít bão hòa có viền tối trong ROI; chuyển động nền không còn dễ kích hoạt PP-OCRv6.
+- Giữ chu kỳ lấy mẫu 0,5 giây để không đánh đổi độ chính xác timeline. Đo 120 giây trên video `丧尸后周游全国.131.mp4`: số khung cần OCR giảm từ 227 xuống 122, khoảng 46%.
+- Cần chạy lại toàn bộ video để xác nhận thời gian thực tế và kiểm tra các cue một ký tự.

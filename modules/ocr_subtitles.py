@@ -88,16 +88,29 @@ def _crop_frame(frame, roi=None):
 
 
 def _frame_signature(frame, roi=None):
-    """Cheap visual signature used to skip unchanged subtitle regions."""
+    """Return a mask of bright glyphs supported by a nearby dark outline.
+
+    Comparing every bright pixel is ineffective on animated video because
+    faces, lamps and scenery keep changing inside the OCR box.  Burned-in
+    dialogue in this workflow is bright, low-saturation text with a dark
+    outline, so this signature ignores most of that background motion while
+    remaining sensitive to a changed Chinese glyph.
+    """
     import cv2
 
     crop, _manual_region = _crop_frame(frame, roi)
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, (192, 48), interpolation=cv2.INTER_AREA)
-    # Burned subtitles in the supported workflow use a bright fill. Comparing
-    # this mask ignores most background motion while remaining sensitive to a
-    # changed glyph, so detection/recognition can be safely skipped more often.
-    return (gray >= 185).astype("uint8") * 255
+    # Keep enough resolution for the thin black outline before reducing the
+    # mask used by the cheap frame comparison.
+    probe = cv2.resize(crop, (384, 96), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(probe, cv2.COLOR_BGR2GRAY)
+    saturation = cv2.cvtColor(probe, cv2.COLOR_BGR2HSV)[:, :, 1]
+    local_min = cv2.erode(gray, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    outlined_bright = (
+        (gray >= 210)
+        & (saturation <= 60)
+        & (local_min <= 110)
+    ).astype("uint8") * 255
+    return cv2.resize(outlined_bright, (192, 48), interpolation=cv2.INTER_AREA)
 
 
 def _read_subtitle_text(engine, frame, roi=None) -> tuple[str, float]:
@@ -247,10 +260,11 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
             visual_change = 999.0
             if previous_signature is not None:
                 visual_change = float(cv2.absdiff(signature, previous_signature).mean())
-            # Conservative default: skip only virtually identical bright-text
-            # masks. Higher thresholds are faster but can miss a glyph during
-            # a rapid subtitle transition.
-            change_threshold = max(0.20, float(os.getenv("BILI2YT_OCR_CHANGE_THRESHOLD", "0.35")))
+            # A changed glyph produces a much larger delta than residual
+            # background edges.  This default is still conservative enough for
+            # one-character cards while allowing repeated frames to bypass the
+            # expensive OCR model.
+            change_threshold = max(0.20, float(os.getenv("BILI2YT_OCR_CHANGE_THRESHOLD", "0.50")))
             if previous_signature is not None and visual_change < change_threshold:
                 observed, confidence = previous_observed, previous_confidence
                 skipped_ocr += 1
