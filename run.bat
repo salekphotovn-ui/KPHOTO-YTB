@@ -12,7 +12,7 @@ if not exist "%PYTHON_EXE%" (
 if not exist "venv\Scripts\python.exe" (
     "%PYTHON_EXE%" -m venv venv
 )
-"venv\Scripts\python.exe" -c "import PyQt6, rapidocr, cv2" >nul 2>&1
+"venv\Scripts\python.exe" -c "import PyQt6, rapidocr, cv2, yt_dlp" >nul 2>&1
 if errorlevel 1 "venv\Scripts\python.exe" -m pip install -r requirements.txt
 where nvidia-smi >nul 2>&1
 if not errorlevel 1 (

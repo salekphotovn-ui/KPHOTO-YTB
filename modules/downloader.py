@@ -11,7 +11,7 @@ import re
 import codecs
 import queue
 import threading
-from config import BBDOWN_PATH, DOWNLOAD_DIR, DEFAULT_DFN_PRIORITY
+from config import ARIA2_PATH, BBDOWN_PATH, DOWNLOAD_DIR, DEFAULT_DFN_PRIORITY, FFMPEG_PATH
 
 # BBDown lưu thông tin đăng nhập (BBDown.data) cùng thư mục nơi nó được chạy.
 # Luôn ép BBDown chạy đúng trong thư mục chứa file .exe của nó, để không bị "mất đăng nhập"
@@ -79,7 +79,7 @@ def bbdown_login(log_callback=None):
     _log("[BBDown] ⚠️ Chưa xác nhận được trong 90 giây - kiểm tra lại cửa sổ QR.")
 
 
-def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
+def _download_video_bbdown(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
                     output_dir: str = None, log_callback=None,
                     progress_index: int = 1, progress_total: int = 1) -> list[str]:
     """
@@ -270,6 +270,111 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     else:
         _log(f"[BBDown] Tải xong: {new_files[0]}")
     return new_files
+
+
+def _download_video_ytdlp(
+    url: str, output_dir: str, log_callback=None,
+    progress_index: int = 1, progress_total: int = 1,
+) -> list[str]:
+    def _log(message):
+        if log_callback:
+            log_callback(message)
+        else:
+            print(message)
+
+    def _snapshot():
+        return {
+            os.path.abspath(path): (os.stat(path).st_mtime_ns, os.stat(path).st_size)
+            for path in glob.glob(os.path.join(output_dir, "**", "*.mp4"), recursive=True)
+            if os.path.isfile(path)
+        }
+
+    before = _snapshot()
+    browser = os.getenv("YTDLP_BROWSER", "chrome")
+    output_template = os.path.join(
+        output_dir, "%(title)s", "[P%(playlist_index)02d]%(title)s.%(ext)s"
+    )
+    base = [
+        sys.executable, "-m", "yt_dlp", "--ignore-config", "--newline", "--no-color",
+        "--cookies-from-browser", browser,
+        "--ffmpeg-location", FFMPEG_PATH,
+        "--format", "bestvideo[height<=720]+bestaudio/best[height<=720]",
+        "--merge-output-format", "mp4", "--continue", "--no-overwrites",
+        "--socket-timeout", "20", "--retries", "20", "--fragment-retries", "20",
+        "--retry-sleep", "fragment:exp=1:10",
+        "--progress-template",
+        "download:[YTDLP] percent=%(progress._percent_str)s speed=%(progress._speed_str)s eta=%(progress._eta_str)s",
+        "--output", output_template,
+    ]
+    attempts = [8, 4]
+    last_error = ""
+    for connections in attempts:
+        command = list(base)
+        if os.path.isfile(ARIA2_PATH):
+            command += [
+                "--downloader", "aria2c",
+                "--downloader-args",
+                f"aria2c:-x {connections} -s {connections} -k 1M --file-allocation=none --summary-interval=1",
+            ]
+        else:
+            command += ["--concurrent-fragments", str(connections)]
+        command.append(url)
+        _log(f"[YTDLP] Bắt đầu tải nhanh với {connections} kết nối")
+        process = subprocess.Popen(
+            command, cwd=os.path.dirname(ARIA2_PATH), stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+            bufsize=1,
+        )
+        output_lines = []
+        for raw_line in process.stdout or []:
+            line = raw_line.strip()
+            if not line:
+                continue
+            output_lines.append(line)
+            progress = re.search(r"\[YTDLP\]\s+percent=\s*([0-9.]+)%?\s+speed=(.*?)\s+eta=(.*)$", line)
+            if progress:
+                percent = min(100.0, float(progress.group(1)))
+                _log(
+                    f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} "
+                    f"percent={percent} speed={progress.group(2).strip()} eta={progress.group(3).strip()}"
+                )
+            elif any(marker in line.lower() for marker in ("error", "warning", "retry", "download")):
+                _log(f"[YTDLP] {line}")
+        process.wait()
+        if process.returncode == 0:
+            after = _snapshot()
+            downloaded = [path for path, state in after.items() if before.get(path) != state]
+            if not downloaded:
+                downloaded = sorted(after, key=lambda path: os.path.getmtime(path), reverse=True)[:1]
+            if downloaded:
+                downloaded.sort(key=_natural_path_sort_key)
+                _log(f"[YTDLP] Tải xong {len(downloaded)} file bằng yt-dlp + aria2c")
+                return downloaded
+            last_error = "yt-dlp kết thúc nhưng không tạo MP4"
+        else:
+            last_error = "\n".join(output_lines[-12:])
+        _log(f"[YTDLP] Tải {connections} kết nối thất bại; chuyển cấu hình thấp hơn")
+    raise RuntimeError(last_error or "yt-dlp tải thất bại")
+
+
+def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
+                   output_dir: str = None, log_callback=None,
+                   progress_index: int = 1, progress_total: int = 1) -> list[str]:
+    """Use fast maintained yt-dlp/aria2c first, then BBDown as fallback."""
+    output_dir = output_dir or DOWNLOAD_DIR
+    os.makedirs(output_dir, exist_ok=True)
+    try:
+        return _download_video_ytdlp(
+            url, output_dir, log_callback, progress_index, progress_total
+        )
+    except Exception as exc:
+        if log_callback:
+            log_callback(f"[YTDLP] Lỗi: {exc}")
+            log_callback("[DownloadFallback] Chuyển sang BBDown")
+        return _download_video_bbdown(
+            url, dfn_priority, output_dir, log_callback,
+            progress_index, progress_total,
+        )
 
 
 def _natural_path_sort_key(path: str):

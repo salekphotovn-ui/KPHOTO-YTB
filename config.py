@@ -57,6 +57,7 @@ load_local_provider_config()
 
 BIN_DIR = app_dir() / "bin"
 BBDOWN_PATH = str(BIN_DIR / "BBDown.exe")
+ARIA2_PATH = str(BIN_DIR / "aria2c.exe")
 FFMPEG_PATH = str(BIN_DIR / "ffmpeg.exe")
 WORK_DIR = app_dir() / "workspace"
 DOWNLOAD_DIR = str(WORK_DIR / "1_downloaded")
@@ -78,6 +79,7 @@ PRESERVE_PATHS = {
     "venv",
     "bin/BBDown.exe",
     "bin/BBDown.data",
+    "bin/aria2c.exe",
     "bin/ffmpeg.exe",
     "workspace",
     "token.json",
