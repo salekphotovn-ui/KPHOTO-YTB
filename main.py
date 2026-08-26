@@ -1025,8 +1025,11 @@ class MainWindow(QMainWindow):
         self.worker.log.connect(self.write_log)
         self.worker.done.connect(self.task_done)
         self.worker.failed.connect(self.task_failed)
-        self.worker.done.connect(self.thread.quit)
-        self.worker.failed.connect(self.thread.quit)
+        # Quit synchronously when the worker settles. A queued quit left the UI
+        # showing 100% while QThread still reported isRunning(), which blocked
+        # the next pipeline action for an unpredictable amount of time.
+        self.worker.done.connect(self.thread.quit, Qt.ConnectionType.DirectConnection)
+        self.worker.failed.connect(self.thread.quit, Qt.ConnectionType.DirectConnection)
         self.thread.finished.connect(self._task_thread_finished)
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
@@ -1054,24 +1057,51 @@ class MainWindow(QMainWindow):
 
     def _task_thread_finished(self):
         finished_thread = self.sender()
-        if self.thread is finished_thread or finished_thread is None:
+        if self.thread is finished_thread or self.thread is None or finished_thread is None:
             self.thread = None
             self.worker = None
+        else:
+            # A delayed finished signal from the previous task must never
+            # consume a pending action belonging to the new task.
+            return
         pending = self.pending_task
         self.pending_task = None
         if pending:
             task, args, kwargs = pending
             QTimer.singleShot(0, lambda: self.start_task(task, *args, **kwargs))
 
+    def _release_completed_task(self):
+        """Close the settled worker before another pipeline action is used."""
+        current = self.thread
+        stopped = True
+        if current is not None:
+            try:
+                current.quit()
+                stopped = current.wait(2000)
+            except RuntimeError:
+                stopped = True
+        if stopped:
+            self.thread = None
+            self.worker = None
+            pending = self.pending_task
+            self.pending_task = None
+            if pending:
+                task, args, kwargs = pending
+                QTimer.singleShot(0, lambda: self.start_task(task, *args, **kwargs))
+        elif self.pending_task is not None:
+            QTimer.singleShot(300, self._start_pending_when_idle)
+
     def task_done(self, result):
         self.progress.setValue(100)
         self.status.setText("Hoàn tất")
         self.write_log(f"[V3] Hoàn tất: {result}")
+        self._release_completed_task()
 
     def task_failed(self, error):
         self.status.setText("Lỗi")
         self.write_log(f"[V3] LỖI: {error}")
         self._write_bug_report(error)
+        self._release_completed_task()
         QMessageBox.critical(self, "Lỗi pipeline", error)
 
     def _write_bug_report(self, error: str):

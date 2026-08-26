@@ -113,3 +113,4 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Gemini 3.6 Flash-High là model mặc định trong hộp thoại và quy trình tự động.
 - Mỗi batch AI hoàn thành được lưu checkpoint nguyên tử; chạy lại chỉ gửi các cue còn thiếu khi SRT, model và ngôn ngữ không đổi.
 - Thanh tiến trình lên 100% khi tác vụ thật sự kết thúc; tỷ lệ cue đã dịch vẫn được ghi riêng trong nhật ký/checkpoint.
+- Bộ quản lý tác vụ đóng và chờ QThread tối đa 2 giây ở cả nhánh thành công/lỗi; tác vụ kế tiếp tự chạy, tín hiệu kết thúc cũ không được phép lấy nhầm hàng chờ của tác vụ mới.
