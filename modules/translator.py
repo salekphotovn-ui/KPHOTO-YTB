@@ -416,6 +416,22 @@ def translate_srt_batch(
                                 sub_items, "Chinese", target_name, api_model, api_key
                             ))
                         except RuntimeError as sub_exc:
+                            if model == "hybrid-qwen-gemini":
+                                gemini_key = os.getenv(
+                                    "GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", "")
+                                )
+                                try:
+                                    mapping.update(_qwen_translate(
+                                        sub_items, "Chinese", target_name,
+                                        "gemini-3.6-flash-high", gemini_key,
+                                    ))
+                                    log(
+                                        f"[TranslateFallback] {sub_start + 1}-{sub_end} "
+                                        "đã chuyển sang Gemini 3.6"
+                                    )
+                                    continue
+                                except RuntimeError as fallback_exc:
+                                    sub_exc = fallback_exc
                             log(
                                 f"[TranslateSkip] {sub_start + 1}-{sub_end} vẫn lỗi; "
                                 f"giữ câu nguồn và tiếp tục: {sub_exc}"
