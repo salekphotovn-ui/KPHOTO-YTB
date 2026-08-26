@@ -1159,6 +1159,9 @@ class MainWindow(QMainWindow):
             if percent == self._last_download_percent:
                 return
             self._last_download_percent = percent
+            detail = text.split("[DownloadProgress]", 1)[-1].strip()
+            self.log_view.append(f"[Tải] {detail}")
+            self.log_view.ensureCursorVisible()
             return
         separator_match = re.search(r"\[Separator\].*?\s(\d{1,3})%\s*\|", text, re.IGNORECASE)
         if separator_match:
@@ -1166,9 +1169,10 @@ class MainWindow(QMainWindow):
             self.progress.setValue(percent)
             if percent != 0 and percent % 5 != 0:
                 return
-            if percent == self._last_download_percent:
+            last_separator = getattr(self, "_last_separator_percent", None)
+            if percent == last_separator:
                 return
-            self._last_download_percent = percent
+            self._last_separator_percent = percent
             self.log_view.append(f"[Tách vocal] {percent}%")
             return
         chunk_match = re.search(r"\[SrtProgress\]\s+CHUNK\s+(\d+)\/(\d+)", text, re.IGNORECASE)
