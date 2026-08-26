@@ -296,7 +296,6 @@ def _download_video_ytdlp(
     )
     base = [
         sys.executable, "-m", "yt_dlp", "--ignore-config", "--newline", "--no-color",
-        "--cookies-from-browser", browser,
         "--ffmpeg-location", FFMPEG_PATH,
         "--format", "bestvideo[height<=720]+bestaudio/best[height<=720]",
         "--merge-output-format", "mp4", "--continue", "--no-overwrites",
@@ -306,10 +305,12 @@ def _download_video_ytdlp(
         "download:[YTDLP] percent=%(progress._percent_str)s speed=%(progress._speed_str)s eta=%(progress._eta_str)s",
         "--output", output_template,
     ]
-    attempts = [8, 4]
+    attempts = [(8, True), (8, False), (4, False)]
     last_error = ""
-    for connections in attempts:
+    for connections, use_browser_cookies in attempts:
         command = list(base)
+        if use_browser_cookies:
+            command += ["--cookies-from-browser", browser]
         if os.path.isfile(ARIA2_PATH):
             command += [
                 "--downloader", "aria2c",
@@ -319,7 +320,8 @@ def _download_video_ytdlp(
         else:
             command += ["--concurrent-fragments", str(connections)]
         command.append(url)
-        _log(f"[YTDLP] Bắt đầu tải nhanh với {connections} kết nối")
+        login_mode = f"cookie {browser}" if use_browser_cookies else "không cookie"
+        _log(f"[YTDLP] Bắt đầu tải nhanh với {connections} kết nối ({login_mode})")
         process = subprocess.Popen(
             command, cwd=os.path.dirname(ARIA2_PATH), stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
@@ -353,7 +355,10 @@ def _download_video_ytdlp(
             last_error = "yt-dlp kết thúc nhưng không tạo MP4"
         else:
             last_error = "\n".join(output_lines[-12:])
-        _log(f"[YTDLP] Tải {connections} kết nối thất bại; chuyển cấu hình thấp hơn")
+        if use_browser_cookies and "failed to decrypt with dpapi" in last_error.lower():
+            _log("[YTDLP] Chrome khóa cookie bằng DPAPI; tự chuyển sang tải không cookie")
+        else:
+            _log(f"[YTDLP] Tải {connections} kết nối thất bại; chuyển cấu hình tiếp theo")
     raise RuntimeError(last_error or "yt-dlp tải thất bại")
 
 
