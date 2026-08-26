@@ -529,7 +529,12 @@ def create_srt_batch(
                 except ImportError:
                     from ocr_subtitles import run_rapidocr_video
                 regions = ocr_regions or {}
-                region = regions.get(str(source_path.resolve()), regions.get("__default__"))
+                region = regions.get(str(source_path.resolve()))
+                if not region:
+                    raise RuntimeError(
+                        f"Chua ve khung OCR rieng cho video {source_path.name}. "
+                        "Chon video ben trai, bam Khung OCR va keo vung phu de."
+                    )
                 transcript = run_rapidocr_video(source_path, log_callback, roi=region)
                 audio_path = None
             elif source_mode == "original":

@@ -1081,10 +1081,6 @@ class MainWindow(QMainWindow):
                 for path, config in self.overlay_configs.items()
                 if config.get("ocr_roi")
             }
-            if self.preview_video_path:
-                selected = self.overlay_configs.get(str(self.preview_video_path.resolve()), {}).get("ocr_roi")
-                if selected:
-                    ocr_regions["__default__"] = list(selected)
         self.start_task(create_srt_batch, str(self.root), engine, source_mode, ocr_regions)
 
     def translate(self):
