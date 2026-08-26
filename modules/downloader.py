@@ -419,7 +419,7 @@ def _download_video_ytdlp(
 
         threading.Thread(target=_read_lines, daemon=True).start()
         stall_timeout = max(20, int(os.getenv("YTDLP_STALL_TIMEOUT", "40")))
-        last_bytes = -1
+        last_signature = None
         last_data = time.monotonic()
         last_notice = last_data
         stream_closed = False
@@ -446,14 +446,18 @@ def _download_video_ytdlp(
                     _log(f"[YTDLP] {line}")
 
             current_bytes = 0
+            newest_write_ns = 0
             for path in glob.glob(os.path.join(output_dir, "**", "*"), recursive=True):
                 if os.path.isfile(path) and path.lower().endswith((".part", ".ytdl", ".m4s", ".m4a", ".mp4")):
                     try:
-                        current_bytes += os.path.getsize(path)
+                        stat = os.stat(path)
+                        current_bytes += stat.st_size
+                        newest_write_ns = max(newest_write_ns, stat.st_mtime_ns)
                     except OSError:
                         pass
-            if current_bytes != last_bytes:
-                last_bytes = current_bytes
+            current_signature = (current_bytes, newest_write_ns)
+            if current_signature != last_signature:
+                last_signature = current_signature
                 last_data = time.monotonic()
             idle = time.monotonic() - last_data
             if time.monotonic() - last_notice >= 10:
