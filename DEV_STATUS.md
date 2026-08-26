@@ -146,3 +146,4 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Toàn bộ kết nối tải được ép IPv4. aria2c thử 8 rồi 4 kết nối; nếu CDN Akamai từ chối aria2c, tool tự chuyển sang downloader native 3 luồng trước khi dự phòng sang BBDown.
 - Nút `Đăng nhập QR` mở một profile Microsoft Edge riêng của V3; yt-dlp lấy cookie trực tiếp qua giao thức điều khiển trình duyệt và ghi file Netscape cục bộ, không giải mã kho cookie Chrome bằng DPAPI.
 - Watchdog kiểm tra cả dung lượng lẫn thời gian ghi file mỗi giây (aria2 có thể tạo sẵn toàn bộ kích thước `.part`); mặc định 40 giây không có hoạt động ghi mới sẽ chuyển từ aria2c sang native, sau cùng mới sang BBDown.
+- Nhật ký đọc trực tiếp dòng trạng thái `(xx%)`, `DL:` và `ETA:` của aria2c để cập nhật thanh tiến trình; không phụ thuộc progress-template của yt-dlp vốn không nhận phần trăm từ external downloader.

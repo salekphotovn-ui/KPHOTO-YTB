@@ -442,6 +442,21 @@ def _download_video_ytdlp(
                         f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} "
                         f"percent={percent} speed={progress.group(2).strip()} eta={progress.group(3).strip()}"
                     )
+                elif downloader_kind == "aria2c":
+                    aria_progress = re.search(r"\((\d{1,3}(?:\.\d+)?)%\)", line)
+                    if aria_progress:
+                        percent = min(100.0, float(aria_progress.group(1)))
+                        speed_match = re.search(r"\bDL:([^\s\]]+)", line)
+                        eta_match = re.search(r"\bETA:([^\s\]]+)", line)
+                        speed = speed_match.group(1) if speed_match else "--"
+                        eta = eta_match.group(1) if eta_match else "--"
+                        last_data = time.monotonic()
+                        _log(
+                            f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} "
+                            f"percent={percent} speed={speed} eta={eta}"
+                        )
+                    elif any(marker in line.lower() for marker in ("error", "warning", "retry", "download")):
+                        _log(f"[YTDLP] {line}")
                 elif any(marker in line.lower() for marker in ("error", "warning", "retry", "download")):
                     _log(f"[YTDLP] {line}")
 
