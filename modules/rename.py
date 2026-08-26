@@ -127,15 +127,22 @@ def auto_rename_folder(folder_path: str, log_callback=None) -> list[str]:
             done_new = os.path.join(new_dir, f"{new_name}.mp4")
             os.rename(done_old, done_new)
 
-            # Never delete source parts automatically. Keeping them is
-            # intentional: a naming/classification step must be reversible.
-            preserved_parts = [
-                old_video for old_video in os.listdir(new_dir)
-                if old_video.lower().endswith(".mp4")
-                and os.path.abspath(os.path.join(new_dir, old_video)) != os.path.abspath(done_new)
-            ]
-            if preserved_parts:
-                _log(f"[Rename] Giữ nguyên {len(preserved_parts)} file part nguồn")
+            if not os.path.isfile(done_new) or os.path.getsize(done_new) == 0:
+                raise RuntimeError(f"Video ghép không hợp lệ, không xóa các part nguồn: {done_new}")
+
+            # The merged file has already been created and renamed safely;
+            # remove its small source parts and keep only the final MP4.
+            for old_video in os.listdir(new_dir):
+                old_video_path = os.path.join(new_dir, old_video)
+                if (
+                    old_video.lower().endswith(".mp4")
+                    and os.path.abspath(old_video_path) != os.path.abspath(done_new)
+                ):
+                    try:
+                        os.remove(old_video_path)
+                        _log(f"[Rename] Đã xoá part cũ: '{old_video}'")
+                    except OSError as exc:
+                        _log(f"[Rename] Không xoá được part '{old_video}': {exc}")
 
             # Dọn mọi file .txt cũ còn sót lại trong thư mục (vd bản 2 dòng
             # được tạo tạm lúc thư mục còn nhiều tập chưa ghép), tránh còn
