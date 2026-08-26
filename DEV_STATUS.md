@@ -143,7 +143,7 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 ## Tải Bilibili ổn định 26/08
 
 - yt-dlp mặc định không đọc cookie Chrome nên không còn vướng lỗi giải mã DPAPI; chỉ bật lại khi chủ động đặt `YTDLP_USE_BROWSER_COOKIES=1`.
-- BBDown 1.6.3 là đường tải mặc định vì thử trực tiếp trên máy đạt khoảng 26 MB/s và tự thay host CDN; yt-dlp native chỉ là dự phòng khi BBDown lỗi.
+- BBDown 1.6.3 là đường tải duy nhất vì thử trực tiếp trên máy đạt khoảng 26 MB/s và tự thay host CDN; không còn yt-dlp native dự phòng.
 - Nút `Đăng nhập QR` mở một profile Microsoft Edge riêng của V3; yt-dlp lấy cookie trực tiếp qua giao thức điều khiển trình duyệt và ghi file Netscape cục bộ, không giải mã kho cookie Chrome bằng DPAPI.
 - Watchdog kiểm tra cả dung lượng lẫn thời gian ghi file mỗi giây; mặc định 40 giây không có hoạt động ghi mới sẽ thử lại native với ít luồng hơn, sau cùng mới sang BBDown.
 - URL CDN có chữ ký dài được ẩn khỏi nhật ký; chỉ giữ thông báo lỗi ngắn để khung log không bị tràn.
