@@ -291,11 +291,13 @@ def _download_video_ytdlp(
 
     before = _snapshot()
     browser = os.getenv("YTDLP_BROWSER", "chrome")
+    use_browser_login = os.getenv("YTDLP_USE_BROWSER_COOKIES", "0") == "1"
     output_template = os.path.join(
         output_dir, "%(title)s", "[P%(playlist_index)02d]%(title)s.%(ext)s"
     )
     base = [
         sys.executable, "-m", "yt_dlp", "--ignore-config", "--newline", "--no-color",
+        "--force-ipv4", "--windows-filenames",
         "--ffmpeg-location", FFMPEG_PATH,
         "--format", "bestvideo[height<=720]+bestaudio/best[height<=720]",
         "--merge-output-format", "mp4", "--continue", "--no-overwrites",
@@ -305,23 +307,27 @@ def _download_video_ytdlp(
         "download:[YTDLP] percent=%(progress._percent_str)s speed=%(progress._speed_str)s eta=%(progress._eta_str)s",
         "--output", output_template,
     ]
-    attempts = [(8, True), (8, False), (4, False)]
+    attempts = [(8, "aria2c"), (4, "aria2c"), (3, "native")]
     last_error = ""
-    for connections, use_browser_cookies in attempts:
+    for connections, downloader_kind in attempts:
         command = list(base)
-        if use_browser_cookies:
+        if use_browser_login:
             command += ["--cookies-from-browser", browser]
-        if os.path.isfile(ARIA2_PATH):
+        if downloader_kind == "aria2c" and os.path.isfile(ARIA2_PATH):
             command += [
                 "--downloader", "aria2c",
                 "--downloader-args",
-                f"aria2c:-x {connections} -s {connections} -k 1M --file-allocation=none --summary-interval=1",
+                f"aria2c:-x {connections} -s {connections} -k 1M --file-allocation=none "
+                "--summary-interval=1 --disable-ipv6=true --async-dns=false",
             ]
         else:
-            command += ["--concurrent-fragments", str(connections)]
+            command += ["--downloader", "native", "--concurrent-fragments", str(connections)]
         command.append(url)
-        login_mode = f"cookie {browser}" if use_browser_cookies else "không cookie"
-        _log(f"[YTDLP] Bắt đầu tải nhanh với {connections} kết nối ({login_mode})")
+        login_mode = f"cookie {browser}" if use_browser_login else "không cookie"
+        _log(
+            f"[YTDLP] Bắt đầu tải với {downloader_kind}, {connections} kết nối, "
+            f"IPv4 ({login_mode})"
+        )
         process = subprocess.Popen(
             command, cwd=os.path.dirname(ARIA2_PATH), stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
@@ -350,15 +356,15 @@ def _download_video_ytdlp(
                 downloaded = sorted(after, key=lambda path: os.path.getmtime(path), reverse=True)[:1]
             if downloaded:
                 downloaded.sort(key=_natural_path_sort_key)
-                _log(f"[YTDLP] Tải xong {len(downloaded)} file bằng yt-dlp + aria2c")
+                _log(f"[YTDLP] Tải xong {len(downloaded)} file bằng yt-dlp + {downloader_kind}")
                 return downloaded
             last_error = "yt-dlp kết thúc nhưng không tạo MP4"
         else:
             last_error = "\n".join(output_lines[-12:])
-        if use_browser_cookies and "failed to decrypt with dpapi" in last_error.lower():
-            _log("[YTDLP] Chrome khóa cookie bằng DPAPI; tự chuyển sang tải không cookie")
-        else:
-            _log(f"[YTDLP] Tải {connections} kết nối thất bại; chuyển cấu hình tiếp theo")
+        _log(
+            f"[YTDLP] {downloader_kind} {connections} kết nối thất bại; "
+            "chuyển cấu hình tiếp theo"
+        )
     raise RuntimeError(last_error or "yt-dlp tải thất bại")
 
 

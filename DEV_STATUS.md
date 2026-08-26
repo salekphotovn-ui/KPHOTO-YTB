@@ -139,3 +139,8 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Bấm `Chạy tự động` lần đầu chạy tải/tách vocal rồi dừng trước OCR để người dùng vẽ ROI riêng cho từng video.
 - Bấm tiếp tục chạy OCR 0,1 giây, dịch và ghép vocal; sau đó dừng trước Xuất để căn sub Anh và Blur.
 - Bấm lần cuối chạy Xuất. Nút góc phải hiển thị `Đang chạy tự động...` trong lúc chạy và trạng thái tiếp theo khi dừng; thiếu ROI sẽ được báo danh sách.
+
+## Tải Bilibili ổn định 26/08
+
+- yt-dlp mặc định không đọc cookie Chrome nên không còn vướng lỗi giải mã DPAPI; chỉ bật lại khi chủ động đặt `YTDLP_USE_BROWSER_COOKIES=1`.
+- Toàn bộ kết nối tải được ép IPv4. aria2c thử 8 rồi 4 kết nối; nếu CDN Akamai từ chối aria2c, tool tự chuyển sang downloader native 3 luồng trước khi dự phòng sang BBDown.
