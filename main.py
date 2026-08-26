@@ -664,6 +664,9 @@ class MainWindow(QMainWindow):
             return
         self.root = Path(selected)
         self.folder_label.setText(str(self.root))
+        self._refresh_movie_list()
+
+    def _refresh_movie_list(self):
         self.movies.clear()
         video_paths = sorted(self.root.rglob("*.mp4"), key=lambda path: str(path).lower())
         for path in video_paths:
@@ -1304,6 +1307,8 @@ class MainWindow(QMainWindow):
     def task_done(self, result):
         if hasattr(self, "_activity_timer"):
             self._activity_timer.stop()
+        if hasattr(self, "root") and self.root.exists():
+            self._refresh_movie_list()
         self.progress.setValue(100)
         self.status.setText("Hoàn tất")
         self.write_log(f"[V3] Hoàn tất: {result}")
@@ -1510,8 +1515,8 @@ def main():
     app.setStyleSheet("QMainWindow,QWidget{background:#050505;color:#fff} QPushButton{padding:8px 12px}")
     window = MainWindow()
     screen = QApplication.primaryScreen().availableGeometry()
-    width = int(screen.width() * 0.8)
-    height = int(screen.height() * 0.8)
+    width = int(screen.width() * 0.9)
+    height = int(screen.height() * 0.9)
     window.resize(width, height)
     window.move(
         screen.left() + (screen.width() - width) // 2,
