@@ -121,3 +121,5 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Thanh `Mờ` điều chỉnh mức 2-30; vị trí, kích thước và mức mờ được lưu theo đường dẫn từng video và truyền nguyên tỷ lệ sang FFmpeg khi xuất.
 - Video chưa tạo Blur không bị áp dụng khung của video khác. Filter Blur đã được kiểm tra trực tiếp trên video 121 phút.
 - Vị trí sub khi xuất được đổi từ pixel video sang hệ tọa độ libass `PlayResY=288`; mặc định 86% tạo `MarginV=32`, không còn bị đẩy từ gần đáy lên giữa hình.
+- Xem trước Blur lấy đúng crop của khung hình video và dùng hiệu ứng làm mờ thật; khung điều khiển chỉ còn viền vàng, không còn nền vàng che hình.
+- FFmpeg xuất bằng `gblur` Gaussian sigma 2-30 giống Blur mềm của CapCut, thay cho hiệu ứng mosaic phóng pixel.

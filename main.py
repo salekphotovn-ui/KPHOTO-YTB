@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, QSizeF, QRectF, QPointF, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPen
+from PyQt6.QtGui import QColor, QBrush, QPen, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
@@ -15,7 +15,8 @@ from PyQt6.QtWidgets import (
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
     QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
     QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
-    QGraphicsProxyWidget, QGraphicsRectItem, QButtonGroup,
+    QGraphicsProxyWidget, QGraphicsRectItem, QGraphicsPixmapItem,
+    QGraphicsBlurEffect, QButtonGroup,
 )
 
 from modules.separator import separate_folder
@@ -409,6 +410,7 @@ class MainWindow(QMainWindow):
         self._ocr_draw_origin = None
         self._updating_ocr_region = False
         self._updating_blur_region = False
+        self._last_preview_frame_image = None
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1200, 780)
         self._build_ui_v3()
@@ -487,13 +489,20 @@ class MainWindow(QMainWindow):
         self.video_scene.addItem(self.ocr_region_item)
         self.blur_region_item = OcrRegionItem(self._blur_region_changed)
         self.blur_region_item.setPen(QPen(QColor(255, 190, 0), 2, Qt.PenStyle.DashLine))
-        self.blur_region_item.setBrush(QBrush(QColor(255, 190, 0, 38)))
+        self.blur_region_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self.blur_region_item.setToolTip(
             "Kéo để di chuyển; kéo 4 cạnh hoặc 4 góc để đổi kích thước vùng Blur"
         )
         self.blur_region_item.setZValue(25)
         self.blur_region_item.hide()
         self.video_scene.addItem(self.blur_region_item)
+        self.blur_preview_item = QGraphicsPixmapItem()
+        self.blur_preview_item.setZValue(24)
+        self.blur_preview_item.hide()
+        self.blur_preview_effect = QGraphicsBlurEffect()
+        self.blur_preview_effect.setBlurHints(QGraphicsBlurEffect.BlurHint.QualityHint)
+        self.blur_preview_item.setGraphicsEffect(self.blur_preview_effect)
+        self.video_scene.addItem(self.blur_preview_item)
         self.video_view.resized.connect(self._resize_preview_scene)
         self.video_view.ocrDragStarted.connect(self._ocr_drag_started)
         self.video_view.ocrDragMoved.connect(self._ocr_drag_moved)
@@ -503,6 +512,7 @@ class MainWindow(QMainWindow):
         self.media_player = QMediaPlayer(self)
         self.media_player.setAudioOutput(self.audio_output)
         self.media_player.setVideoOutput(self.video_item)
+        self.video_item.videoSink().videoFrameChanged.connect(self._preview_frame_for_blur)
         self.media_player.positionChanged.connect(self._preview_position_changed)
         self.media_player.durationChanged.connect(self._preview_duration_changed)
         self.media_player.playbackStateChanged.connect(self._preview_state_changed)
@@ -639,6 +649,8 @@ class MainWindow(QMainWindow):
         self._preview_loading_frame = True
         self._preview_was_muted = self.audio_output.isMuted()
         self.preview_video_path = video_path
+        self._last_preview_frame_image = None
+        self.blur_preview_item.hide()
         video_config = self.overlay_configs.get(str(video_path.resolve()), {})
         self._subtitle_user_position = "subtitle_y_ratio" in video_config
         self.preview_subtitles = self._load_preview_subtitles(video_path)
@@ -708,8 +720,10 @@ class MainWindow(QMainWindow):
                 ).intersected(video_display_rect)
                 self.blur_region_item.set_scene_box(box)
                 self.blur_region_item.show()
+                self._render_blur_preview()
             else:
                 self.blur_region_item.hide()
+                self.blur_preview_item.hide()
             strength = max(2, min(30, int(video_config.get("blur_strength", 12))))
             self.blur_strength.setValue(strength)
             self.blur_strength_label.setText(f"Mờ {strength}")
@@ -735,6 +749,7 @@ class MainWindow(QMainWindow):
             self.blur_region_item.set_scene_box(default_box)
             self.blur_region_item.show()
             self._blur_region_changed()
+        self._render_blur_preview()
         self.status.setText(
             "Khung Blur: kéo bên trong để di chuyển; kéo cạnh hoặc góc để co giãn."
         )
@@ -756,13 +771,53 @@ class MainWindow(QMainWindow):
         config = self.overlay_configs.setdefault(str(self.preview_video_path.resolve()), {})
         config["blur_boxes"] = [blur_box]
         config["blur_strength"] = self.blur_strength.value()
+        self._render_blur_preview()
         self.status.setText(
             f"Đã lưu Blur riêng cho {self.preview_video_path.name}"
         )
 
     def _update_blur_item_brush(self, strength):
-        alpha = max(25, min(105, 20 + int(strength) * 3))
-        self.blur_region_item.setBrush(QBrush(QColor(255, 190, 0, alpha)))
+        self.blur_region_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self.blur_preview_effect.setBlurRadius(max(3.0, float(strength) * 1.35))
+        self._render_blur_preview()
+
+    def _preview_frame_for_blur(self, frame):
+        if not frame.isValid():
+            return
+        image = frame.toImage()
+        if image.isNull():
+            return
+        self._last_preview_frame_image = image
+        self._render_blur_preview()
+
+    def _render_blur_preview(self):
+        image = self._last_preview_frame_image
+        if (image is None or image.isNull() or not self.blur_region_item.isVisible()
+                or not self.preview_video_path):
+            self.blur_preview_item.hide()
+            return
+        config = self.overlay_configs.get(str(self.preview_video_path.resolve()), {})
+        boxes = config.get("blur_boxes") or []
+        if not boxes or len(boxes[0]) != 4:
+            self.blur_preview_item.hide()
+            return
+        x, y, width, height = [float(value) for value in boxes[0]]
+        left = max(0, min(image.width() - 1, round(x * image.width())))
+        top = max(0, min(image.height() - 1, round(y * image.height())))
+        crop_width = max(1, min(image.width() - left, round(width * image.width())))
+        crop_height = max(1, min(image.height() - top, round(height * image.height())))
+        crop = image.copy(left, top, crop_width, crop_height)
+        box = self.blur_region_item.scene_box()
+        target_width = max(1, round(box.width()))
+        target_height = max(1, round(box.height()))
+        pixmap = QPixmap.fromImage(crop).scaled(
+            target_width, target_height,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.blur_preview_item.setPixmap(pixmap)
+        self.blur_preview_item.setPos(box.topLeft())
+        self.blur_preview_item.show()
 
     def _blur_strength_changed(self, value):
         value = max(2, min(30, int(value)))
@@ -772,6 +827,7 @@ class MainWindow(QMainWindow):
             return
         config = self.overlay_configs.setdefault(str(self.preview_video_path.resolve()), {})
         config["blur_strength"] = value
+        self._render_blur_preview()
         if self.blur_region_item.isVisible():
             self.status.setText(
                 f"Độ mờ {value} cho {self.preview_video_path.name}"
