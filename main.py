@@ -431,11 +431,6 @@ class MainWindow(QMainWindow):
             self._activity_timer = QTimer(self)
             self._activity_timer.setInterval(5000)
             self._activity_timer.timeout.connect(self._write_activity_heartbeat)
-        self._activity_timer.start()
-
-    def _write_activity_heartbeat(self):
-        if self.thread and self.thread.isRunning():
-            self.write_log(f"[Đang chạy] Tác vụ vẫn đang hoạt động · tiến độ {self.progress.value()}%")
         self.preview_subtitles = []
         self.preview_subtitle_path = None
         self.preview_video_path = None
@@ -1241,6 +1236,7 @@ class MainWindow(QMainWindow):
         self.thread.start()
         self.progress.setValue(0)
         self._last_download_percent = None
+        self._activity_timer.start()
         self.status.setText("Đang xử lý...")
 
     def _set_task_progress(self, value):
@@ -1249,6 +1245,12 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             return
         self.progress.setValue(percent)
+
+    def _write_activity_heartbeat(self):
+        if self.thread and self.thread.isRunning():
+            self.write_log(
+                f"[Đang chạy] Tác vụ vẫn đang hoạt động · tiến độ {self.progress.value()}%"
+            )
 
     def _start_pending_when_idle(self):
         """Reliably launch a queued action after the previous QThread exits."""
