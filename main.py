@@ -34,6 +34,19 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
         if log_callback:
             log_callback(message)
 
+    if steps.get("concat"):
+        log("[AutoStage] Đang ghép file video")
+        # Concatenation remains selection-safe: only folders containing
+        # multiple numbered parts are merged; unrelated movies are untouched.
+        for sub in sorted(Path(folder).iterdir()) if Path(folder).exists() else []:
+            if not sub.is_dir():
+                continue
+            parts = sorted(p for p in sub.glob("*.mp4") if "_Export" not in p.stem and p.stem.lower() != "done")
+            if len(parts) > 1:
+                concat_videos([str(p) for p in parts], log_callback=log_callback)
+    if steps.get("rename"):
+        log("[AutoStage] Đang đặt tên / phân loại")
+        auto_rename_folder(folder, log_callback=log_callback)
     if steps.get("separate"):
         log("[AutoStage] Đang tách vocal")
         separate_folder(folder, log_callback=log_callback)
