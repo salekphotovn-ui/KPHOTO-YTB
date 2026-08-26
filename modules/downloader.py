@@ -377,7 +377,7 @@ def _download_video_ytdlp(
         "--ffmpeg-location", FFMPEG_PATH,
         "--format", "bestvideo[height<=720]+bestaudio/best[height<=720]",
         "--merge-output-format", "mp4", "--continue", "--no-overwrites",
-        "--socket-timeout", "20", "--retries", "20", "--fragment-retries", "20",
+        "--socket-timeout", "12", "--retries", "3", "--fragment-retries", "3",
         "--retry-sleep", "fragment:exp=1:10",
         "--progress-template",
         "download:[YTDLP] percent=%(progress._percent_str)s speed=%(progress._speed_str)s eta=%(progress._eta_str)s",
@@ -477,7 +477,11 @@ def _download_video_ytdlp(
                     except OSError:
                         pass
             current_signature = (current_bytes, newest_write_ns)
-            if current_signature != last_signature:
+            # A zero-byte preallocated .part can have its mtime touched by
+            # retries; that is not download activity. Only reset the watchdog
+            # after bytes exist or a non-empty file is written.
+            activity = current_bytes > 0 and current_signature != last_signature
+            if activity:
                 last_signature = current_signature
                 last_data = time.monotonic()
             idle = time.monotonic() - last_data

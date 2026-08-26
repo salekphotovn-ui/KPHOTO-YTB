@@ -147,4 +147,5 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Nút `Đăng nhập QR` mở một profile Microsoft Edge riêng của V3; yt-dlp lấy cookie trực tiếp qua giao thức điều khiển trình duyệt và ghi file Netscape cục bộ, không giải mã kho cookie Chrome bằng DPAPI.
 - Watchdog kiểm tra cả dung lượng lẫn thời gian ghi file mỗi giây; mặc định 40 giây không có hoạt động ghi mới sẽ thử lại native với ít luồng hơn, sau cùng mới sang BBDown.
 - URL CDN có chữ ký dài được ẩn khỏi nhật ký; chỉ giữ thông báo lỗi ngắn để khung log không bị tràn.
+- Native yt-dlp giới hạn retry kết nối ở 3 lần; file `.part` 0 byte không còn được watchdog coi là đang tải, tránh treo hàng chục phút ở 0%.
 - Nhật ký đọc trực tiếp dòng trạng thái `(xx%)`, `DL:` và `ETA:` của aria2c để cập nhật thanh tiến trình; không phụ thuộc progress-template của yt-dlp vốn không nhận phần trăm từ external downloader.
