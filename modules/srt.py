@@ -501,7 +501,10 @@ def create_srt_batch(
 ) -> list[str]:
     root = Path(root_path)
     source_mode = str(source_mode or "vocals").strip().lower()
-    if source_mode == "original":
+    if engine == "rapidocr-v6":
+        source_mode = "video"
+        sources = _find_source_videos(root)
+    elif source_mode == "original":
         sources = _find_source_videos(root)
     else:
         folders = sorted(
@@ -520,18 +523,30 @@ def create_srt_batch(
         log_callback(f"[SrtProgress] ITEM {index}/{len(sources)} {source_path.name}")
         work_dir = None
         try:
-            if source_mode == "original":
+            if engine == "rapidocr-v6":
+                try:
+                    from .ocr_subtitles import run_rapidocr_video
+                except ImportError:
+                    from ocr_subtitles import run_rapidocr_video
+
+                transcript = run_rapidocr_video(source_path, log_callback)
+                audio_path = None
+            elif source_mode == "original":
                 audio_path, work_dir = _extract_original_audio(source_path, log_callback)
             else:
                 audio_path = source_path
-            if engine == "kphoto-local":
+            if engine == "rapidocr-v6":
+                pass
+            elif engine == "kphoto-local":
                 transcript = _run_kphoto_chunked(audio_path, log_callback)
             else:
                 transcript = _run_whisper_v3(audio_path, log_callback)
             segments = transcript.get("segments", [])
             if not segments:
                 raise RuntimeError("Khong nhan dang duoc cau thoai.")
-            if source_mode == "original":
+            if source_mode == "video":
+                log_callback("[SrtSync] OCR dung truc tiep timeline khung hinh cua video.")
+            elif source_mode == "original":
                 log_callback("[SrtSync] Dung timeline audio goc cua video, khong can co timestamp.")
             else:
                 segments = _align_segments_to_video_timeline(segments, source_path, log_callback)

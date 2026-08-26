@@ -82,6 +82,7 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Mở giao diện và kiểm tra hình/âm thanh, kéo timeline, đổi qua lại nhiều phim và phụ đề tiếng Anh tương ứng.
 - Whisper video dài dùng chunk WAV PCM mono 16 kHz và xóa từng chunk sau xử lý để tránh lỗi encoder FLAC `invalid block size`.
 - Ghép Whisper video dài chỉ giữ vùng lõi mỗi chunk; overlap 8 giây chỉ làm ngữ cảnh, không tạo cue trùng ở mốc 30 phút.
+- Thêm PP-OCRv6 Small qua RapidOCR/ONNX để tạo `zh.srt` trực tiếp từ phụ đề Trung đóng trên hình; quét vùng dưới video mỗi 0,5 giây, có tiến độ và dùng CUDA khi khả dụng.
 
 ## Quy tắc an toàn
 

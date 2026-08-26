@@ -86,8 +86,11 @@ class SrtModelDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn model nhận dạng tiếng Trung:"))
         self.whisper = QRadioButton("Whisper V3 (large-v3) - chất lượng cao")
-        self.whisper.setChecked(True)
         layout.addWidget(self.whisper)
+        self.rapidocr = QRadioButton("PP-OCRv6 Small - đọc sub Trung trên hình, nhanh và đúng timeline")
+        self.rapidocr.setChecked(True)
+        layout.addWidget(self.rapidocr)
+        layout.addWidget(QLabel("OCR đọc trực tiếp hình ảnh nên không sử dụng nguồn âm thanh bên dưới."))
         self.kphoto = QRadioButton("KPHOTO-Local - nhanh, dùng GPU")
         self.kphoto.setEnabled(kphoto_available)
         if not kphoto_available:
@@ -95,6 +98,7 @@ class SrtModelDialog(QDialog):
         layout.addWidget(self.kphoto)
         self.engine_group = QButtonGroup(self)
         self.engine_group.addButton(self.whisper)
+        self.engine_group.addButton(self.rapidocr)
         self.engine_group.addButton(self.kphoto)
         layout.addWidget(QLabel("Chọn nguồn âm thanh:"))
         self.original_audio = QRadioButton("Âm thanh gốc từ video MP4 (đúng timeline)")
@@ -109,7 +113,10 @@ class SrtModelDialog(QDialog):
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
-        engine = "kphoto-local" if self.kphoto.isChecked() else "whisper-v3"
+        if self.rapidocr.isChecked():
+            engine = "rapidocr-v6"
+        else:
+            engine = "kphoto-local" if self.kphoto.isChecked() else "whisper-v3"
         source_mode = "original" if self.original_audio.isChecked() else "vocals"
         return engine, source_mode
 
@@ -679,7 +686,14 @@ class MainWindow(QMainWindow):
             if percent in (0, 100) or percent % 5 == 0:
                 self.log_view.append(f"[Whisper V3] {percent}%")
             return
-        elif text.startswith("[SrtSource]") or text.startswith("[SrtSync]") or text.startswith("KPHOTO-Local:"):
+        ocr_match = re.search(r"\[SrtProgress\]\s+OCR_PERCENT\s+(\d+)", text, re.IGNORECASE)
+        if ocr_match:
+            percent = max(0, min(100, int(ocr_match.group(1))))
+            self.progress.setValue(percent)
+            if percent in (0, 100) or percent % 5 == 0:
+                self.log_view.append(f"[OCR PP-OCRv6] {percent}%")
+            return
+        elif text.startswith("[SrtSource]") or text.startswith("[SrtSync]") or text.startswith("KPHOTO-Local:") or text.startswith("[OCR]"):
             self.log_view.append(text)
             self.log_view.ensureCursorVisible()
             return

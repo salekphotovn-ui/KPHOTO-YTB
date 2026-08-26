@@ -6,6 +6,7 @@ torchaudio
 audio-separator[gpu]>=0.20.0
 # CUDA 12.x compatible ONNX Runtime GPU (1.28 requires CUDA 13.x).
 onnxruntime-gpu==1.22.0
+rapidocr>=3.9.2
 audioread
 # audio-separator 0.44.x still uses librosa.get_duration(filename=...).
 librosa==0.10.2.post1
