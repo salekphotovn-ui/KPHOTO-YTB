@@ -40,9 +40,17 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None):
         log("[AutoStage] Đang tạo SRT Whisper V3")
         create_srt_batch(folder, engine="whisper-v3", log_callback=log_callback)
     if steps.get("translate"):
-        log("[AutoStage] Đang dịch Google Translate Web")
-        translate_srt_batch(folder, "en", os.getenv("TRANSLATOR_MODEL", "hybrid-qwen-gemini"),
-                            os.getenv("QWEN_API_KEY", ""), log_callback=log_callback)
+        log("[AutoStage] Đang dịch Gemini 3.6 Flash-High")
+        automatic_model = os.getenv("TRANSLATOR_MODEL", "gemini-3.6-flash-high")
+        automatic_key = (
+            os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+            if automatic_model == "gemini-3.6-flash-high"
+            else os.getenv("QWEN_API_KEY", "")
+        )
+        translate_srt_batch(
+            folder, "en", automatic_model, automatic_key,
+            log_callback=log_callback,
+        )
     if steps.get("mux"):
         log("[AutoStage] Đang ghép vocal")
         mux_folder(folder, log_callback=log_callback)
@@ -136,13 +144,12 @@ class TranslateDialog(QDialog):
             self.target.addItem(label, code)
         layout.addWidget(self.target)
         layout.addWidget(QLabel("Model dịch:"))
-        self.google = QRadioButton("Google Translate Web (miễn phí)"); self.google.setChecked(True); layout.addWidget(self.google)
+        self.google = QRadioButton("Google Translate Web (miễn phí)"); layout.addWidget(self.google)
         self.gemini = QRadioButton("Gemini (cần API key)"); self.gemini.setEnabled(False); layout.addWidget(self.gemini)
         self.qwen38 = QRadioButton("Qwen3.8-Max (cần QWEN_API_KEY)"); layout.addWidget(self.qwen38)
-        self.gemini36 = QRadioButton("Gemini 3.6 Flash-High (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini36)
+        self.gemini36 = QRadioButton("Gemini 3.6 Flash-High (cần GEMINI_API_KEY)"); self.gemini36.setChecked(True); layout.addWidget(self.gemini36)
         self.gemini31 = QRadioButton("Gemini 3.1 Flash-Lite (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini31)
         self.hybrid = QRadioButton("Hybrid: Qwen3.8-Max + Gemini sửa chọn lọc"); layout.addWidget(self.hybrid)
-        self.hybrid.setChecked(True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
@@ -1038,6 +1045,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda: self.start_task(task, *args, **kwargs))
 
     def task_done(self, result):
+        self.progress.setValue(100)
         self.status.setText("Hoàn tất")
         self.write_log(f"[V3] Hoàn tất: {result}")
 

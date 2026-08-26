@@ -61,8 +61,8 @@ FFMPEG_PATH = str(BIN_DIR / "ffmpeg.exe")
 WORK_DIR = app_dir() / "workspace"
 DOWNLOAD_DIR = str(WORK_DIR / "1_downloaded")
 DEFAULT_DFN_PRIORITY = "720P 高清, 720P"
-# Free web translator used by the V3 UI unless an AI model is selected.
-TRANSLATOR_MODEL = "hybrid-qwen-gemini"
+# Default subtitle model selected in the V3 UI and automatic pipeline.
+TRANSLATOR_MODEL = "gemini-3.6-flash-high"
 # Default model used by the legacy tool.
 SEPARATOR_MODEL = "htdemucs.yaml"
 LONG_VIDEO_THRESHOLD_SECONDS = 2 * 3600

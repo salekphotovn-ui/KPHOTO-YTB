@@ -107,3 +107,9 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Bộ lọc khung hình chỉ theo dõi chữ sáng, ít bão hòa có viền tối trong ROI; chuyển động nền không còn dễ kích hoạt PP-OCRv6.
 - Giữ chu kỳ lấy mẫu 0,5 giây để không đánh đổi độ chính xác timeline. Đo 120 giây trên video `丧尸后周游全国.131.mp4`: số khung cần OCR giảm từ 227 xuống 122, khoảng 46%.
 - Cần chạy lại toàn bộ video để xác nhận thời gian thực tế và kiểm tra các cue một ký tự.
+
+## Dịch SRT ổn định 26/08
+
+- Gemini 3.6 Flash-High là model mặc định trong hộp thoại và quy trình tự động.
+- Mỗi batch AI hoàn thành được lưu checkpoint nguyên tử; chạy lại chỉ gửi các cue còn thiếu khi SRT, model và ngôn ngữ không đổi.
+- Thanh tiến trình lên 100% khi tác vụ thật sự kết thúc; tỷ lệ cue đã dịch vẫn được ghi riêng trong nhật ký/checkpoint.
