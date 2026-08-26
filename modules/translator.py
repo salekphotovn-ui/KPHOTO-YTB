@@ -125,7 +125,8 @@ def _google_web_translate(text: str, target_language: str) -> str:
         f"&sl=zh-CN&tl={quote(target_language)}&dt=t&q={quote(text or '')}"
     )
     last_error = None
-    for attempt in range(3):
+    last_error = "unknown error"
+    for attempt in range(6):
         try:
             response = requests.get(
                 url,
@@ -320,11 +321,14 @@ def _qwen_translate(items: list[dict], source: str, target: str, model: str, api
                 return _parse_translation_response(text)
             if response.status_code not in (429, 500, 502, 503, 504):
                 raise RuntimeError(f"Qwen HTTP {response.status_code}: {response.text[:300]}")
+            last_error = f"Qwen HTTP {response.status_code}: {response.text[:200]}"
         except (requests.RequestException, KeyError, IndexError, ValueError, RuntimeError) as exc:
-            if attempt == 2:
+            last_error = str(exc)
+            if attempt == 5:
                 raise RuntimeError(f"Qwen không phản hồi sau nhiều lần thử: {exc}") from exc
-        time.sleep(2 ** attempt)
-    raise RuntimeError("Qwen không trả về kết quả.")
+        if attempt < 5:
+            time.sleep(min(20, 2 ** attempt))
+    raise RuntimeError(f"Qwen không trả về kết quả: {last_error}")
 
 
 def translate_srt_batch(
@@ -394,7 +398,28 @@ def translate_srt_batch(
             items = [{"id": index, "text": cues[index]["text"]} for index in range(start, end)]
             if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini"):
                 api_model = "qwen3.8-max" if model == "hybrid-qwen-gemini" else model
-                mapping = _qwen_translate(items, "Chinese", target_name, api_model, api_key)
+                try:
+                    mapping = _qwen_translate(items, "Chinese", target_name, api_model, api_key)
+                except RuntimeError as exc:
+                    # Retry a failed large request as two smaller requests. A
+                    # transient failure near the end must not discard every
+                    # part of a long film that already completed.
+                    log(f"[TranslateRetry] Batch {start + 1}-{end} lỗi, chia đôi: {exc}")
+                    mapping = {}
+                    middle = start + max(1, (end - start) // 2)
+                    for sub_start, sub_end in ((start, middle), (middle, end)):
+                        if sub_start >= sub_end:
+                            continue
+                        sub_items = [item for item in items if sub_start <= item["id"] < sub_end]
+                        try:
+                            mapping.update(_qwen_translate(
+                                sub_items, "Chinese", target_name, api_model, api_key
+                            ))
+                        except RuntimeError as sub_exc:
+                            log(
+                                f"[TranslateSkip] {sub_start + 1}-{sub_end} vẫn lỗi; "
+                                f"giữ câu nguồn và tiếp tục: {sub_exc}"
+                            )
             else:
                 mapping = _gemini_translate(items, "Chinese", target_name, main_model, api_key)
             # Retry a malformed/empty batch once as a batch. Never fan out to
@@ -403,14 +428,21 @@ def translate_srt_batch(
                 log(f"[Translate] Batch {start + 1}-{end} trả kết quả rỗng, retry nguyên batch")
                 retry_batch = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini") else _gemini_translate
                 retry_model = "qwen3.8-max" if model == "hybrid-qwen-gemini" else (model if retry_batch is _qwen_translate else main_model)
-                mapping = retry_batch(items, "Chinese", target_name, retry_model, api_key)
+                try:
+                    mapping = retry_batch(items, "Chinese", target_name, retry_model, api_key)
+                except RuntimeError as exc:
+                    log(f"[TranslateSkip] Batch {start + 1}-{end} vẫn rỗng, tiếp tục: {exc}")
+                    mapping = {}
             if model == "hybrid-qwen-gemini":
                 flagged = [item for item in items if re.search(r"[\u4e00-\u9fff]", mapping.get(item["id"], "")) or len(mapping.get(item["id"], "")) > 120]
                 if flagged:
                     gemini_key = os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", ""))
-                    polished = _qwen_translate(flagged[:10], "Chinese", target_name, "gemini-3.6-flash-high", gemini_key)
-                    mapping.update(polished)
-                    log(f"[TranslateHybrid] Đã sửa chọn lọc {len(polished)} cue")
+                    try:
+                        polished = _qwen_translate(flagged[:10], "Chinese", target_name, "gemini-3.6-flash-high", gemini_key)
+                        mapping.update(polished)
+                        log(f"[TranslateHybrid] Đã sửa chọn lọc {len(polished)} cue")
+                    except RuntimeError as exc:
+                        log(f"[TranslateHybrid] Gemini sửa chọn lọc tạm lỗi, bỏ qua: {exc}")
             missing = [
                 index for index in range(start, end)
                 if not mapping.get(index) or mapping[index].strip() == cues[index]["text"].strip()
@@ -425,13 +457,17 @@ def translate_srt_batch(
                     if model == "hybrid-qwen-gemini" else api_key
                 )
                 retry_model_name = "gemini-3.6-flash-high" if model == "hybrid-qwen-gemini" else (model if retry_fn is _qwen_translate else repair_model)
-                retry = retry_fn(
-                    [{"id": index, "text": cues[index]["text"]}],
-                    "Chinese",
-                    target_name,
-                    retry_model_name,
-                    retry_api_key,
-                )
+                try:
+                    retry = retry_fn(
+                        [{"id": index, "text": cues[index]["text"]}],
+                        "Chinese",
+                        target_name,
+                        retry_model_name,
+                        retry_api_key,
+                    )
+                except RuntimeError as exc:
+                    log(f"[TranslateSkip] Cue {index + 1} sửa lại thất bại, tiếp tục: {exc}")
+                    retry = {}
                 if retry.get(index):
                     mapping[index] = retry[index]
             return start, end, mapping
