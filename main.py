@@ -1126,6 +1126,8 @@ class MainWindow(QMainWindow):
 
     def download(self):
         dialog = DownloadDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
         links, dfn_priority = dialog.values()
         if not links:
             return
