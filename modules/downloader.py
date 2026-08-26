@@ -42,15 +42,33 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     process = subprocess.Popen(cmd, cwd=BBDOWN_DIR, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True,
                                encoding="utf-8", errors="replace", bufsize=1)
-    for raw in process.stdout or []:
-        line = raw.strip()
+    pending = ""
+    while True:
+        char = process.stdout.read(1) if process.stdout else ""
+        if not char:
+            if pending:
+                line, pending = pending, ""
+            else:
+                break
+        elif char in "\r\n":
+            line, pending = pending, ""
+            if not line:
+                continue
+        else:
+            pending += char
+            continue
+        line = line.strip()
         if not line:
             continue
         safe = re.sub(r"https?://\S+", "[CDN URL]", line)
         if len(safe) > 300: safe = safe[:300] + "..."
-        m = re.search(r"(\d{1,3})%", line)
+        m = re.search(r"(\d{1,3})\s*%", line)
         if m:
-            log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent={m.group(1)}")
+            speed = ""
+            speed_match = re.search(r"[-|]\s*([\d.]+\s*[KMG]?B/s)", line, re.I)
+            if speed_match:
+                speed = f" speed={speed_match.group(1)}"
+            log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent={m.group(1)}{speed}")
         elif any(x in line.lower() for x in ("error", "failed", "warning", "download")):
             log(f"[BBDown] {safe}")
     process.wait()
