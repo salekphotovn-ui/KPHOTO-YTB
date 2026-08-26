@@ -45,7 +45,9 @@ def _load_engine(log_callback):
     from rapidocr import RapidOCR
 
     params = {
-        "Global.log_level": "warning",
+        # Empty detection is normal between subtitle cards; keep it out of the
+        # user log and only surface genuine OCR errors.
+        "Global.log_level": "error",
         "EngineConfig.onnxruntime.use_cuda": use_cuda,
     }
     _OCR_ENGINE = RapidOCR(params=params)
@@ -128,7 +130,14 @@ def _postprocess_segments(segments: list[dict], sample_interval: float) -> list[
 
 def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
     """Sample video frames and turn stable burned-in Chinese text into cues."""
+    # Suppress FFmpeg/OpenCV decoder chatter for recoverable damaged HEVC
+    # packets. Failed frames are skipped while the OCR job continues.
+    os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
     import cv2
+    try:
+        cv2.setLogLevel(0)
+    except AttributeError:
+        pass
 
     sample_interval = max(0.25, float(os.getenv("BILI2YT_OCR_INTERVAL", "0.5")))
     engine = _load_engine(log_callback)

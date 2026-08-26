@@ -392,6 +392,8 @@ class MainWindow(QMainWindow):
         self._subtitle_user_position = False
         self._preview_loading_frame = False
         self._preview_was_muted = False
+        self._preview_resume_after_seek = False
+        self._pending_preview_seek = 0
         self._ocr_draw_origin = None
         self._updating_ocr_region = False
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
@@ -488,6 +490,10 @@ class MainWindow(QMainWindow):
         self.subtitle_timer.setInterval(50)
         self.subtitle_timer.timeout.connect(self._refresh_preview_subtitle)
         self.subtitle_timer.start()
+        self.preview_seek_timer = QTimer(self)
+        self.preview_seek_timer.setSingleShot(True)
+        self.preview_seek_timer.setInterval(120)
+        self.preview_seek_timer.timeout.connect(self._apply_preview_seek)
         controls = QHBoxLayout()
         self.preview_play = QPushButton("▶")
         self.preview_play.setEnabled(False)
@@ -500,7 +506,9 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.ocr_region_button)
         self.preview_timeline = QSlider(Qt.Orientation.Horizontal)
         self.preview_timeline.setRange(0, 0)
+        self.preview_timeline.sliderPressed.connect(self._preview_slider_pressed)
         self.preview_timeline.sliderMoved.connect(self._seek_preview)
+        self.preview_timeline.sliderReleased.connect(self._preview_slider_released)
         controls.addWidget(self.preview_timeline, 1)
         self.preview_time = QLabel("00:00 / 00:00")
         controls.addWidget(self.preview_time)
@@ -776,7 +784,34 @@ class MainWindow(QMainWindow):
             self.media_player.play()
 
     def _seek_preview(self, position: int):
-        self.media_player.setPosition(position)
+        self._pending_preview_seek = max(0, int(position))
+        # Subtitle text and time follow the mouse immediately even while an
+        # HEVC keyframe seek is still being decoded in the background.
+        self.preview_time.setText(
+            f"{self._format_preview_time(self._pending_preview_seek)} / "
+            f"{self._format_preview_time(self.media_player.duration())}"
+        )
+        self._update_preview_subtitle(self._pending_preview_seek)
+        self.preview_seek_timer.start()
+
+    def _preview_slider_pressed(self):
+        self._preview_resume_after_seek = (
+            self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        )
+        if self._preview_resume_after_seek:
+            self.media_player.pause()
+
+    def _apply_preview_seek(self):
+        self.media_player.setPosition(self._pending_preview_seek)
+
+    def _preview_slider_released(self):
+        self.preview_seek_timer.stop()
+        self._pending_preview_seek = self.preview_timeline.value()
+        self._apply_preview_seek()
+        self._update_preview_subtitle(self._pending_preview_seek)
+        if self._preview_resume_after_seek:
+            QTimer.singleShot(140, self.media_player.play)
+        self._preview_resume_after_seek = False
 
     def _preview_duration_changed(self, duration: int):
         self.preview_timeline.setRange(0, max(0, duration))

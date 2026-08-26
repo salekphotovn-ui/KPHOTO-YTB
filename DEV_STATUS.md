@@ -84,6 +84,7 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Ghép Whisper video dài chỉ giữ vùng lõi mỗi chunk; overlap 8 giây chỉ làm ngữ cảnh, không tạo cue trùng ở mốc 30 phút.
 - Thêm PP-OCRv6 Small qua RapidOCR/ONNX để tạo `zh.srt` trực tiếp từ phụ đề Trung đóng trên hình; quét vùng dưới video mỗi 0,5 giây, có tiến độ và dùng CUDA khi khả dụng.
 - Khung OCR được vẽ trực tiếp trên xem trước, kéo để tạo, di chuyển và co giãn bằng 4 cạnh/4 góc; mỗi video bắt buộc có ROI riêng, không dùng khung của phim này cho phim khác.
+- Timeline xem trước dùng seek debounce 120 ms, tạm dừng khi kéo và cập nhật sub tức thời; ẩn cảnh báo OCR trống/HEVC có thể phục hồi để nhật ký không bị loạn.
 
 ## Quy tắc an toàn
 
