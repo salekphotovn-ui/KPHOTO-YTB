@@ -129,3 +129,9 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - PP-OCRv6 kiểm tra mặt nạ chữ mỗi 0,1 giây nhưng chỉ gọi model khi chữ thay đổi; có thêm mốc tích lũy để bắt trường hợp chữ fade dần.
 - Giữ cửa sổ ổn định 0,5 giây và loại cue nhiễu dưới khoảng 0,32 giây để quét dày không tạo thêm chữ chuyển cảnh rác.
 - Ngưỡng thay đổi mặc định 1,10, mục tiêu sai số timeline 0,1-0,2 giây; cần xác nhận chất lượng và thời gian bằng một video 2 giờ thực tế.
+
+## Quy trình tự động theo pha 26/08
+
+- Bấm `Chạy tự động` lần đầu chạy tải/tách vocal rồi dừng trước OCR để người dùng vẽ ROI riêng cho từng video.
+- Bấm tiếp tục chạy OCR 0,1 giây, dịch và ghép vocal; sau đó dừng trước Xuất để căn sub Anh và Blur.
+- Bấm lần cuối chạy Xuất. Nút góc phải hiển thị `Đang chạy tự động...` trong lúc chạy và trạng thái tiếp theo khi dừng; thiếu ROI sẽ được báo danh sách.
