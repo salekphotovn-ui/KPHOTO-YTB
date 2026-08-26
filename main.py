@@ -36,14 +36,28 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
 
     if steps.get("concat"):
         log("[AutoStage] Đang ghép file video")
-        # Concatenation remains selection-safe: only folders containing
-        # multiple numbered parts are merged; unrelated movies are untouched.
-        for sub in sorted(Path(folder).iterdir()) if Path(folder).exists() else []:
-            if not sub.is_dir():
-                continue
-            parts = sorted(p for p in sub.glob("*.mp4") if "_Export" not in p.stem and p.stem.lower() != "done")
-            if len(parts) > 1:
-                concat_videos([str(p) for p in parts], log_callback=log_callback)
+        merge_folders = sorted(
+            [path for path in Path(folder).iterdir() if path.is_dir()],
+            key=lambda path: path.name.casefold(),
+        ) if Path(folder).exists() else []
+        log(f"[ConcatProgress] START total={len(merge_folders)}")
+        for merge_index, part_folder in enumerate(merge_folders, 1):
+            direct_mp4s = [
+                path for path in part_folder.iterdir()
+                if path.is_file() and path.suffix.lower() == ".mp4"
+            ]
+            has_done = any(path.name.lower() == "done.mp4" for path in direct_mp4s)
+            if len(direct_mp4s) >= 2 and not has_done:
+                log(f"[Auto] Đang ghép parts: {part_folder.name}")
+                try:
+                    concat_videos(
+                        [str(path) for path in direct_mp4s],
+                        delete_originals=True,
+                        log_callback=log_callback,
+                    )
+                except Exception as exc:
+                    log(f"[Auto] Lỗi khi ghép thư mục '{part_folder}': {exc}")
+            log(f"[ConcatProgress] {merge_index}/{len(merge_folders)}")
     if steps.get("rename"):
         log("[AutoStage] Đang đặt tên / phân loại")
         auto_rename_folder(folder, log_callback=log_callback)
@@ -1413,6 +1427,8 @@ class MainWindow(QMainWindow):
         if phase == 0:
             steps = {
                 "download": bool(self.auto_plan.get("download")),
+                "concat": bool(self.auto_plan.get("concat")),
+                "rename": bool(self.auto_plan.get("rename")),
                 "separate": bool(self.auto_plan.get("separate")),
                 "srt": False, "translate": False, "mux": False, "export": False,
             }
@@ -1420,7 +1436,7 @@ class MainWindow(QMainWindow):
                 urls, dfn = self.pending_download_links, self.pending_download_dfn
                 self.pending_download_links = []
                 self.start_task(run_download_and_auto_pipeline, str(self.root), urls, dfn, steps)
-            elif steps["separate"]:
+            elif any(steps.get(key) for key in ("concat", "rename", "separate")):
                 self.start_task(run_auto_pipeline, str(self.root), steps)
             else:
                 self._auto_active_phase = None

@@ -6,6 +6,8 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 
 ## Trạng thái hiện tại
 
+- Quy trình tự động phase đầu đã đồng bộ V2: ghép từng thư mục part với `delete_originals=True`, đặt tên/phân loại, tách vocal rồi dừng trước OCR.
+
 - Đã tạo project độc lập tại `Bili2YT_V3`.
 - Đã khởi tạo Git repository riêng.
 - Đã tạo giao diện PyQt6 bằng source `main.py`.
