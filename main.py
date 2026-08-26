@@ -79,25 +79,25 @@ class AutoProcessDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn các bước muốn chạy (mặc định đã chọn hết):"))
         self.checks = {}
-        items = [("download", "Tải video (link đã nhập)"), ("concat", "Ghép file video"), ("rename", "Đặt tên / phân loại"), ("separate", "Tách vocal"), ("srt", "Quét SRT bằng PP-OCRv6 (timeline 0,1 giây)"), ("translate", "Dịch phụ đề bằng Gemini 3.6 Flash-High"), ("mux", "Ghép vocal (tự động khi xuất)"), ("export", "Xuất video")]
+        items = [("download", "Tải video (link đã nhập)"), ("concat", "Ghép file video"), ("rename", "Đặt tên / phân loại"), ("separate", "Tách vocal")]
         for key, label in items:
             check = QCheckBox(label)
-            check.setChecked(key != "download" or has_pending_download)
+            check.setChecked(True)
             if key == "mux":
                 check.setChecked(True)
                 check.setEnabled(False)
                 check.setToolTip("Vocal local sẽ được ghép trực tiếp trong bước Xuất video; không tạo file trung gian.")
-            if key in {"concat", "rename"}:
-                check.setChecked(False)
-                check.setEnabled(False)
-                check.setToolTip("Thực hiện bằng nút Ghép / Đặt tên riêng vì cần chọn file hoặc xác nhận tên.")
             self.checks[key] = check
             layout.addWidget(check)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
-        return {key: check.isChecked() for key, check in self.checks.items()}
+        values = {key: check.isChecked() for key, check in self.checks.items()}
+        # These phases are intentionally resumed after the user draws OCR
+        # regions, then paused again before export for visual adjustments.
+        values.update({"srt": True, "translate": True, "mux": False, "export": True})
+        return values
 
 
 class SrtModelDialog(QDialog):
