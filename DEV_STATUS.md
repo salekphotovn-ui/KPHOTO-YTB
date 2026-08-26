@@ -114,3 +114,9 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Mỗi batch AI hoàn thành được lưu checkpoint nguyên tử; chạy lại chỉ gửi các cue còn thiếu khi SRT, model và ngôn ngữ không đổi.
 - Thanh tiến trình lên 100% khi tác vụ thật sự kết thúc; tỷ lệ cue đã dịch vẫn được ghi riêng trong nhật ký/checkpoint.
 - Bộ quản lý tác vụ đóng và chờ QThread tối đa 2 giây ở cả nhánh thành công/lỗi; tác vụ kế tiếp tự chạy, tín hiệu kết thúc cũ không được phép lấy nhầm hàng chờ của tác vụ mới.
+
+## Blur theo từng video 26/08
+
+- Nút `+ Blur` tạo một khung riêng cho video đang xem; kéo trong khung để di chuyển và kéo 4 cạnh/4 góc để co giãn.
+- Thanh `Mờ` điều chỉnh mức 2-30; vị trí, kích thước và mức mờ được lưu theo đường dẫn từng video và truyền nguyên tỷ lệ sang FFmpeg khi xuất.
+- Video chưa tạo Blur không bị áp dụng khung của video khác. Filter Blur đã được kiểm tra trực tiếp trên video 121 phút.

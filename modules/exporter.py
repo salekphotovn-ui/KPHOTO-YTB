@@ -70,13 +70,19 @@ def _video_height(video_path: Path) -> int:
 def _build_filter(
     video_path: Path, blur_boxes: list[list[float]], logo_path: str,
     subtitle_y_ratio: float = 0.86, logo_box: list[float] | None = None,
+    blur_strength: int = 12,
 ) -> str:
     chains = ["[0:v]setpts=PTS-STARTPTS[base]"]
     current = "[base]"
+    blur_factor = max(2, min(30, int(blur_strength)))
     for index, box in enumerate(blur_boxes):
         x, y, width, height = [max(0.0, min(1.0, float(value))) for value in box]
         # Scale down/up the selected crop to make a smooth, natural blur.
-        crop = f"crop=iw*{width:.6f}:ih*{height:.6f}:iw*{x:.6f}:ih*{y:.6f},scale=iw/12:ih/12:flags=bilinear,scale=iw*12:ih*12:flags=lanczos"
+        crop = (
+            f"crop=iw*{width:.6f}:ih*{height:.6f}:iw*{x:.6f}:ih*{y:.6f},"
+            f"scale=iw/{blur_factor}:ih/{blur_factor}:flags=bilinear,"
+            f"scale=iw*{blur_factor}:ih*{blur_factor}:flags=lanczos"
+        )
         chains.append(
             f"{current}split=2[keep{index}][patch{index}];"
             f"[patch{index}]{crop}[blur{index}];"
@@ -114,13 +120,16 @@ def export_video(
     logo_path: str = "",
     subtitle_y_ratio: float = 0.86,
     logo_box: list[float] | None = None,
+    blur_strength: int = 12,
     log_callback=None,
     progress_callback=None,
 ) -> str:
     source = Path(video_path)
     output = source.with_name(f"{source.stem}_Export.mp4")
     blur_boxes = blur_boxes or []
-    filters = _build_filter(source, blur_boxes, logo_path, subtitle_y_ratio, logo_box)
+    filters = _build_filter(
+        source, blur_boxes, logo_path, subtitle_y_ratio, logo_box, blur_strength
+    )
     encoder = _encoder()
     command = [FFMPEG_PATH, "-y", "-progress", "pipe:1", "-nostats", "-i", str(source)]
     command += ["-filter_complex", filters, "-map", "[vout]", "-map", "0:a?", "-c:v", encoder]
@@ -211,6 +220,7 @@ def export_folder(
             video_logo = config.get("logo_path", logo_path)
             video_subtitle_y = config.get("subtitle_y_ratio", 0.86)
             video_logo_box = config.get("logo_box")
+            video_blur_strength = config.get("blur_strength", 12)
             def overall_progress(value, current=index):
                 if progress_callback:
                     progress_callback(
@@ -224,6 +234,7 @@ def export_folder(
                 logo_path=video_logo,
                 subtitle_y_ratio=video_subtitle_y,
                 logo_box=video_logo_box,
+                blur_strength=video_blur_strength,
                 log_callback=log_callback,
                 progress_callback=overall_progress,
             ))

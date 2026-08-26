@@ -408,6 +408,7 @@ class MainWindow(QMainWindow):
         self._pending_preview_seek = 0
         self._ocr_draw_origin = None
         self._updating_ocr_region = False
+        self._updating_blur_region = False
         self.setWindowTitle("Bili2YT - Video Workspace / V3")
         self.resize(1200, 780)
         self._build_ui_v3()
@@ -484,6 +485,15 @@ class MainWindow(QMainWindow):
         self.ocr_region_item = OcrRegionItem(self._ocr_region_changed)
         self.ocr_region_item.hide()
         self.video_scene.addItem(self.ocr_region_item)
+        self.blur_region_item = OcrRegionItem(self._blur_region_changed)
+        self.blur_region_item.setPen(QPen(QColor(255, 190, 0), 2, Qt.PenStyle.DashLine))
+        self.blur_region_item.setBrush(QBrush(QColor(255, 190, 0, 38)))
+        self.blur_region_item.setToolTip(
+            "Kéo để di chuyển; kéo 4 cạnh hoặc 4 góc để đổi kích thước vùng Blur"
+        )
+        self.blur_region_item.setZValue(25)
+        self.blur_region_item.hide()
+        self.video_scene.addItem(self.blur_region_item)
         self.video_view.resized.connect(self._resize_preview_scene)
         self.video_view.ocrDragStarted.connect(self._ocr_drag_started)
         self.video_view.ocrDragMoved.connect(self._ocr_drag_moved)
@@ -511,8 +521,19 @@ class MainWindow(QMainWindow):
         self.preview_play.setEnabled(False)
         self.preview_play.clicked.connect(self._toggle_preview)
         controls.addWidget(self.preview_play)
-        for label in ("+ Blur", "+ Logo", "+ Khung"):
-            controls.addWidget(QPushButton(label))
+        self.blur_button = QPushButton("+ Blur")
+        self.blur_button.clicked.connect(self._enable_blur_region)
+        controls.addWidget(self.blur_button)
+        controls.addWidget(QPushButton("+ Logo"))
+        controls.addWidget(QPushButton("+ Khung"))
+        self.blur_strength_label = QLabel("Mờ 12")
+        controls.addWidget(self.blur_strength_label)
+        self.blur_strength = QSlider(Qt.Orientation.Horizontal)
+        self.blur_strength.setRange(2, 30)
+        self.blur_strength.setValue(12)
+        self.blur_strength.setMaximumWidth(90)
+        self.blur_strength.valueChanged.connect(self._blur_strength_changed)
+        controls.addWidget(self.blur_strength)
         self.ocr_region_button = QPushButton("▣ Khung OCR")
         self.ocr_region_button.clicked.connect(self._enable_ocr_region_draw)
         controls.addWidget(self.ocr_region_button)
@@ -657,6 +678,7 @@ class MainWindow(QMainWindow):
         subtitle_y = min(max(0, subtitle_y), height - subtitle_height)
         self.subtitle_proxy.setGeometry(QRectF(35, subtitle_y, subtitle_width, subtitle_height))
         self.ocr_region_item.allowed_rect = video_display_rect
+        self.blur_region_item.allowed_rect = video_display_rect
         if self.preview_video_path:
             region = video_config.get("ocr_roi")
             if region and len(region) == 4:
@@ -673,6 +695,87 @@ class MainWindow(QMainWindow):
                 self._updating_ocr_region = False
             else:
                 self.ocr_region_item.hide()
+            blur_boxes = video_config.get("blur_boxes") or []
+            blur_box = blur_boxes[0] if blur_boxes and len(blur_boxes[0]) == 4 else None
+            self._updating_blur_region = True
+            if blur_box:
+                x, y, box_width, box_height = (float(value) for value in blur_box)
+                box = QRectF(
+                    display_left + x * display_width,
+                    display_top + y * display_height,
+                    box_width * display_width,
+                    box_height * display_height,
+                ).intersected(video_display_rect)
+                self.blur_region_item.set_scene_box(box)
+                self.blur_region_item.show()
+            else:
+                self.blur_region_item.hide()
+            strength = max(2, min(30, int(video_config.get("blur_strength", 12))))
+            self.blur_strength.setValue(strength)
+            self.blur_strength_label.setText(f"Mờ {strength}")
+            self._update_blur_item_brush(strength)
+            self._updating_blur_region = False
+
+    def _enable_blur_region(self):
+        if not self.preview_video_path:
+            QMessageBox.information(
+                self, "Khung Blur", "Hãy chọn một video ở danh sách bên trái trước."
+            )
+            return
+        allowed = self.blur_region_item.allowed_rect
+        if allowed.width() <= 0 or allowed.height() <= 0:
+            return
+        if not self.blur_region_item.isVisible():
+            default_box = QRectF(
+                allowed.left() + allowed.width() * 0.72,
+                allowed.top() + allowed.height() * 0.04,
+                allowed.width() * 0.23,
+                allowed.height() * 0.13,
+            ).intersected(allowed)
+            self.blur_region_item.set_scene_box(default_box)
+            self.blur_region_item.show()
+            self._blur_region_changed()
+        self.status.setText(
+            "Khung Blur: kéo bên trong để di chuyển; kéo cạnh hoặc góc để co giãn."
+        )
+
+    def _blur_region_changed(self):
+        if (self._updating_blur_region or not self.preview_video_path
+                or not self.blur_region_item.isVisible()):
+            return
+        allowed = self.blur_region_item.allowed_rect
+        box = self.blur_region_item.scene_box().intersected(allowed)
+        if allowed.width() <= 0 or allowed.height() <= 0:
+            return
+        blur_box = [
+            max(0.0, min(1.0, (box.left() - allowed.left()) / allowed.width())),
+            max(0.0, min(1.0, (box.top() - allowed.top()) / allowed.height())),
+            max(0.01, min(1.0, box.width() / allowed.width())),
+            max(0.01, min(1.0, box.height() / allowed.height())),
+        ]
+        config = self.overlay_configs.setdefault(str(self.preview_video_path.resolve()), {})
+        config["blur_boxes"] = [blur_box]
+        config["blur_strength"] = self.blur_strength.value()
+        self.status.setText(
+            f"Đã lưu Blur riêng cho {self.preview_video_path.name}"
+        )
+
+    def _update_blur_item_brush(self, strength):
+        alpha = max(25, min(105, 20 + int(strength) * 3))
+        self.blur_region_item.setBrush(QBrush(QColor(255, 190, 0, alpha)))
+
+    def _blur_strength_changed(self, value):
+        value = max(2, min(30, int(value)))
+        self.blur_strength_label.setText(f"Mờ {value}")
+        self._update_blur_item_brush(value)
+        if self._updating_blur_region or not self.preview_video_path:
+            return
+        config = self.overlay_configs.setdefault(str(self.preview_video_path.resolve()), {})
+        config["blur_strength"] = value
+        if self.blur_region_item.isVisible():
+            self.status.setText(
+                f"Độ mờ {value} cho {self.preview_video_path.name}"
+            )
 
     def _enable_ocr_region_draw(self):
         if not self.preview_video_path:
