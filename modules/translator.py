@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import time
 import traceback
@@ -25,6 +26,34 @@ NON_WORD_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 _QWEN_USAGE = {"input": 0, "output": 0, "requests": 0}
 _QWEN_USAGE_LOCK = threading.Lock()
 _QWEN_PRICING = {"input": 800, "output": 4000, "minimum": 20}
+
+
+def _translation_signature(cues: list[dict], model: str, target: str) -> str:
+    payload = {
+        "model": model,
+        "target": target,
+        "cues": [[cue.get("start"), cue.get("end"), cue.get("text")] for cue in cues],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _load_translation_checkpoint(path: Path, signature: str, cue_count: int) -> list[str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        values = data.get("translated", [])
+        if data.get("signature") != signature or len(values) != cue_count:
+            return [""] * cue_count
+        return [str(value or "") for value in values]
+    except (OSError, ValueError, TypeError):
+        return [""] * cue_count
+
+
+def _save_translation_checkpoint(path: Path, signature: str, translated: list[str]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    payload = {"signature": signature, "translated": translated}
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def _qwen_cost_vnd() -> float:
@@ -384,18 +413,39 @@ def translate_srt_batch(
             results.append(str(output_path))
             log(f"[Translate] FILM_DONE {film_name} output={output_path.name}")
             continue
-        translated = [""] * len(cues)
+        checkpoint_name = ".translate_checkpoint_{}_{}.json".format(
+            target_language,
+            re.sub(r"[^a-z0-9_.-]+", "_", model),
+        )
+        checkpoint_path = source_path.parent / checkpoint_name
+        checkpoint_signature = _translation_signature(cues, model, target_language)
+        translated = _load_translation_checkpoint(
+            checkpoint_path, checkpoint_signature, len(cues)
+        )
+        resumed_count = sum(bool(text) for text in translated)
+        if resumed_count:
+            log(
+                f"[TranslateResume] Đã khôi phục {resumed_count}/{len(cues)} câu; "
+                "chỉ gửi lại phần còn thiếu"
+            )
         log(f"[Translate] Đang dịch {source_path.parent.parent.name} ({len(cues)} câu)")
         try:
             batch_size = int(os.getenv("QWEN_BATCH_SIZE", "100"))
         except ValueError:
             batch_size = 100
         batch_size = max(25, min(batch_size, 300))
-        parts = [(start, min(start + batch_size, len(cues))) for start in range(0, len(cues), batch_size)]
+        parts = [
+            (start, min(start + batch_size, len(cues)))
+            for start in range(0, len(cues), batch_size)
+            if any(not translated[index] for index in range(start, min(start + batch_size, len(cues))))
+        ]
 
         def translate_part(start: int, end: int) -> tuple[int, int, dict[int, str]]:
             log(f"[TranslateProgress] START {start + 1}-{end}/{len(cues)}")
-            items = [{"id": index, "text": cues[index]["text"]} for index in range(start, end)]
+            items = [
+                {"id": index, "text": cues[index]["text"]}
+                for index in range(start, end) if not translated[index]
+            ]
             if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini"):
                 api_model = "qwen3.8-max" if model == "hybrid-qwen-gemini" else model
                 try:
@@ -494,22 +544,33 @@ def translate_srt_batch(
             configured_workers = int(os.getenv("QWEN_WORKERS", "10"))
         except ValueError:
             configured_workers = 10
+        # Vilao's Qwen upstream starts returning concurrent 503 responses at
+        # ten long subtitle requests. Six keeps useful parallelism without a
+        # retry storm that is slower and risks repeating paid work.
+        if model == "hybrid-qwen-gemini":
+            configured_workers = min(configured_workers, 6)
         worker_count = min(max(1, configured_workers), max(1, len(parts)))
         log(f"[Translate] Chia {len(cues)} câu thành {len(parts)} phần xấp xỉ {batch_size} cue, chạy tối đa {worker_count} luồng")
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(translate_part, start, end) for start, end in parts]
             completed = 0
-            completed_end = 0
             for future in as_completed(futures):
                 start, end, mapping = future.result()
                 for index, text in mapping.items():
                     if start <= index < end:
                         translated[index] = text
+                # Persist after every paid batch. os.replace keeps the previous
+                # valid checkpoint intact if the app or machine stops while
+                # this small file is being written.
+                _save_translation_checkpoint(
+                    checkpoint_path, checkpoint_signature, translated
+                )
                 completed += 1
-                completed_end = max(completed_end, end)
-                percent = round(completed_end * 100 / max(1, len(cues)))
-                log(f"[TranslateProgress] {completed_end}/{len(cues)} câu ({completed}/{len(parts)} phần) percent={percent}")
+                saved_count = sum(bool(text) for text in translated)
+                percent = round(saved_count * 100 / max(1, len(cues)))
+                log(f"[TranslateProgress] {saved_count}/{len(cues)} câu ({completed}/{len(parts)} phần) percent={percent}")
 
+        missing_after_run = sum(not text for text in translated)
         for index, text in enumerate(translated):
             if not text:
                 translated[index] = cues[index]["text"]
@@ -520,6 +581,16 @@ def translate_srt_batch(
         if leftover_cjk or suspicious_long:
             log(f"[TranslateQA] {film_name}: còn {leftover_cjk} cue có chữ Trung, {suspicious_long} cue quá dài (không gọi thêm request)")
         _write_srt(output_path, output_cues)
+        if missing_after_run:
+            log(
+                f"[TranslateResume] Còn {missing_after_run} câu chưa dịch; "
+                "checkpoint được giữ để lần sau tiếp tục"
+            )
+        else:
+            try:
+                checkpoint_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         results.append(str(output_path))
         log(f"[Translate] FILM_DONE {film_name} output={output_path.name}")
         log(f"[Translate] Đã lưu {output_path.name}")
