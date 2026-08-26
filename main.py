@@ -1125,9 +1125,9 @@ class MainWindow(QMainWindow):
         return f"{minutes:02d}:{seconds:02d}"
 
     def download(self):
+        QMessageBox.information(self, "Tải video", "Chức năng tải đang được tích hợp lại và tạm thời chưa có mã.")
+        return
         dialog = DownloadDialog(self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
         links, dfn_priority = dialog.values()
         if not links:
             return

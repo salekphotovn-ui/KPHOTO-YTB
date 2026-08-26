@@ -56,9 +56,9 @@ load_local_provider_config()
 
 
 BIN_DIR = app_dir() / "bin"
+FFMPEG_PATH = str(BIN_DIR / "ffmpeg.exe")
 BBDOWN_PATH = str(BIN_DIR / "BBDown.exe")
 ARIA2_PATH = str(BIN_DIR / "aria2c.exe")
-FFMPEG_PATH = str(BIN_DIR / "ffmpeg.exe")
 WORK_DIR = app_dir() / "workspace"
 DOWNLOAD_DIR = str(WORK_DIR / "1_downloaded")
 DEFAULT_DFN_PRIORITY = "720P 高清, 720P"
