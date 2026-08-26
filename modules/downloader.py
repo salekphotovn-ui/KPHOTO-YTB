@@ -528,20 +528,22 @@ def _download_video_ytdlp(
 def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
                    output_dir: str = None, log_callback=None,
                    progress_index: int = 1, progress_total: int = 1) -> list[str]:
-    """Use yt-dlp native downloader first, then BBDown as fallback."""
+    """Use BBDown first (fast Bilibili path), then yt-dlp as fallback."""
     output_dir = output_dir or DOWNLOAD_DIR
     os.makedirs(output_dir, exist_ok=True)
     try:
-        return _download_video_ytdlp(
-            url, output_dir, log_callback, progress_index, progress_total
-        )
-    except Exception as exc:
         if log_callback:
-            log_callback(f"[YTDLP] Lỗi: {exc}")
-            log_callback("[DownloadFallback] Chuyển sang BBDown")
+            log_callback("[Download] Dùng BBDown trực tiếp (ưu tiên tốc độ Bilibili)")
         return _download_video_bbdown(
             url, dfn_priority, output_dir, log_callback,
             progress_index, progress_total,
+        )
+    except Exception as exc:
+        if log_callback:
+            log_callback(f"[BBDown] Lỗi: {exc}")
+            log_callback("[DownloadFallback] Chuyển sang yt-dlp native")
+        return _download_video_ytdlp(
+            url, output_dir, log_callback, progress_index, progress_total
         )
 
 
