@@ -79,7 +79,7 @@ class AutoProcessDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn các bước muốn chạy (mặc định đã chọn hết):"))
         self.checks = {}
-        items = [("download", "Tải video (link đã nhập)"), ("separate", "Tách vocal"), ("srt", "Tạo SRT bằng Whisper V3"), ("translate", "Dịch phụ đề bằng Google Web"), ("mux", "Ghép vocal"), ("export", "Xuất video")]
+        items = [("download", "Tải video (link đã nhập)"), ("separate", "Tách vocal"), ("srt", "Quét SRT bằng PP-OCRv6 (timeline 0,1 giây)"), ("translate", "Dịch phụ đề bằng Gemini 3.6 Flash-High"), ("mux", "Ghép vocal"), ("export", "Xuất video")]
         for key, label in items:
             check = QCheckBox(label)
             check.setChecked(key != "download" or has_pending_download)
