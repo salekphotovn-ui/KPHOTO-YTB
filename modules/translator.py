@@ -420,7 +420,10 @@ def translate_srt_batch(
             # failures are left as source text to avoid runaway API cost.
             for index in missing[:3]:
                 retry_fn = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini") else _gemini_translate
-                retry_api_key = os.getenv("GEMINI_API_KEY", "") if model == "hybrid-qwen-gemini" else api_key
+                retry_api_key = (
+                    os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+                    if model == "hybrid-qwen-gemini" else api_key
+                )
                 retry_model_name = "gemini-3.6-flash-high" if model == "hybrid-qwen-gemini" else (model if retry_fn is _qwen_translate else repair_model)
                 retry = retry_fn(
                     [{"id": index, "text": cues[index]["text"]}],
