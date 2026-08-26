@@ -6,6 +6,7 @@ V3 là bản source-based mới, chạy trực tiếp bằng Python 3.12 và kh�
 
 ## Trạng thái hiện tại
 
+- Downloader có watchdog theo dung lượng file: sau 180 giây không có dữ liệu mới sẽ dừng BBDown treo, giữ `.vclip` và thử lại tối đa 3 lần; thất bại sẽ báo lỗi rõ trên UI.
 - Quy trình tự động phase đầu đã đồng bộ V2: ghép từng thư mục part với `delete_originals=True`, đặt tên/phân loại, tách vocal rồi dừng trước OCR.
 
 - Đã tạo project độc lập tại `Bili2YT_V3`.

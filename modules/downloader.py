@@ -9,6 +9,8 @@ import glob
 import time
 import re
 import codecs
+import queue
+import threading
 from config import BBDOWN_PATH, DOWNLOAD_DIR, DEFAULT_DFN_PRIORITY
 
 # BBDown lưu thông tin đăng nhập (BBDown.data) cùng thư mục nơi nó được chạy.
@@ -128,39 +130,111 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     _log(f"[BBDown] Đang tải: {url}")
     _log(f"[BBDown] Lệnh chạy: {' '.join(cmd)}")
 
-    process = subprocess.Popen(
-        cmd,
-        cwd=BBDOWN_DIR,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=False,
-        bufsize=0,
-    )
     output_text = ""
     pending = ""
-    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-    while True:
-        # Read one byte at a time because BBDown refreshes progress with `\r`.
-        chunk = process.stdout.read(1) if process.stdout else b""
-        if not chunk:
-            break
-        decoded = decoder.decode(chunk)
-        output_text += decoded
-        pending += decoded
-        percent_matches = list(re.finditer(r"\[(\d{1,3}(?:\.\d+)?)\]", pending))
-        if percent_matches:
-            for percent_match in percent_matches:
-                # BBDown writes progress with carriage returns instead of newlines.
-                # Reading raw chunks lets the UI receive each update immediately.
-                percent = min(100, float(percent_match.group(1)))
+    stall_timeout = max(30, int(os.getenv("BBDOWN_STALL_TIMEOUT", "180")))
+    max_attempts = max(1, int(os.getenv("BBDOWN_MAX_ATTEMPTS", "3")))
+
+    def _activity_signature():
+        total_size = 0
+        newest_ns = 0
+        for path in glob.glob(os.path.join(output_dir, "**", "*"), recursive=True):
+            if not os.path.isfile(path):
+                continue
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            if path.lower().endswith((".vclip", ".mp4", ".m4s")):
+                total_size += stat.st_size
+                newest_ns = max(newest_ns, stat.st_mtime_ns)
+        return total_size, newest_ns
+
+    process = None
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            _log(f"[DownloadRetry] Thử lại {attempt}/{max_attempts}; giữ file tạm để tải tiếp")
+        process = subprocess.Popen(
+            cmd,
+            cwd=BBDOWN_DIR,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=False,
+            bufsize=0,
+        )
+        chunks = queue.Queue()
+
+        def _pump_stdout():
+            while True:
+                chunk = process.stdout.read(1) if process.stdout else b""
+                chunks.put(chunk)
+                if not chunk:
+                    return
+
+        reader = threading.Thread(target=_pump_stdout, daemon=True)
+        reader.start()
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        last_activity = time.monotonic()
+        last_signature = _activity_signature()
+        last_watchdog_log = last_activity
+        stalled = False
+        stream_closed = False
+        while not stream_closed:
+            try:
+                chunk = chunks.get(timeout=1.0)
+            except queue.Empty:
+                chunk = None
+            if chunk == b"":
+                stream_closed = True
+            elif chunk:
+                decoded = decoder.decode(chunk)
+                output_text += decoded
+                pending += decoded
+                percent_matches = list(re.finditer(r"\[(\d{1,3}(?:\.\d+)?)\]", pending))
+                if percent_matches:
+                    for percent_match in percent_matches:
+                        percent = min(100, float(percent_match.group(1)))
+                        _log(
+                            f"[DownloadProgress] PERCENT i={progress_index} "
+                            f"total={progress_total} percent={percent}"
+                        )
+                    pending = pending[percent_matches[-1].end():]
+                elif len(pending) > 256:
+                    pending = pending[-128:]
+
+            signature = _activity_signature()
+            if signature != last_signature:
+                last_signature = signature
+                last_activity = time.monotonic()
+            idle = time.monotonic() - last_activity
+            if time.monotonic() - last_watchdog_log >= 15:
                 _log(
-                    f"[DownloadProgress] PERCENT i={progress_index} "
-                    f"total={progress_total} percent={percent}"
+                    f"[DownloadWatchdog] vẫn theo dõi · không có dữ liệu mới {int(idle)}s · "
+                    f"đã nhận {signature[0] / 1048576:.1f} MB"
                 )
-            pending = pending[percent_matches[-1].end():]
-        elif len(pending) > 256:
-            pending = pending[-128:]
-    pending += decoder.decode(b"", final=True)
+                last_watchdog_log = time.monotonic()
+            if idle >= stall_timeout:
+                stalled = True
+                _log(f"[DownloadWatchdog] BBDown bị treo {int(idle)}s, đang khởi động lại")
+                process.terminate()
+                try:
+                    process.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+                break
+
+        reader.join(timeout=2)
+        pending += decoder.decode(b"", final=True)
+        if not stalled:
+            process.wait()
+            break
+        if attempt == max_attempts:
+            raise RuntimeError(
+                f"BBDown không tải thêm dữ liệu trong {stall_timeout}s sau {max_attempts} lần thử"
+            )
+
+    assert process is not None
     for percent_match in re.finditer(r"\[(\d{1,3}(?:\.\d+)?)\]", pending):
             percent = min(100, float(percent_match.group(1)))
             _log(
