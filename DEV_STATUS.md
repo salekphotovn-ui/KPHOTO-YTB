@@ -91,6 +91,7 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Video `丧尸后周游全国.131.mp4` dài 7.273 giây: PP-OCRv6 tạo 3.125 cue, phủ đến 7.272,209 giây; không overlap, không cue quá 5,5 giây, không câu quá 30 ký tự.
 - Đối chiếu 22 mốc từ đầu đến cuối: phần lớn nội dung trùng chữ phụ đề đóng trên hình; timeline sai số khoảng một chu kỳ quét 0,5 giây và tốt hơn rõ rệt so với Whisper.
 - Còn nhiễu tại lúc đổi thẻ phụ đề: 193 cue ngắn không quá 0,55 giây (6,2%), đôi khi là chữ chuyển tiếp/thiếu nét như vùng 1.198-1.201 giây. Cần thêm ổn định chuyển cảnh trước khi coi OCR đạt 100%.
+- OCR mới gom các cue chuyển tiếp gần giống, giữ bản dài/tin cậy nhất; dùng chữ ký hình ảnh ROI để bỏ qua lần gọi model khi vùng phụ đề không đổi nhưng vẫn giữ chu kỳ timeline 0,5 giây.
 
 ## Quy tắc an toàn
 

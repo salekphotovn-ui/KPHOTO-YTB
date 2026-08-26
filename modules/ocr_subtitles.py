@@ -25,6 +25,15 @@ def _similar_text(left: str, right: str) -> bool:
     return SequenceMatcher(None, left, right).ratio() >= 0.86
 
 
+def _transition_similarity(left: str, right: str) -> float:
+    """Similarity tolerant enough to group partial OCR during card changes."""
+    if not left or not right:
+        return 0.0
+    if left in right or right in left:
+        return min(len(left), len(right)) / max(len(left), len(right))
+    return SequenceMatcher(None, left, right).ratio()
+
+
 def _load_engine(log_callback):
     global _OCR_ENGINE
     if _OCR_ENGINE is not None:
@@ -62,9 +71,7 @@ def _load_engine(log_callback):
     return _OCR_ENGINE
 
 
-def _read_subtitle_text(engine, frame, roi=None) -> tuple[str, float]:
-    import cv2
-
+def _crop_frame(frame, roi=None):
     height, width = frame.shape[:2]
     manual_region = bool(roi and len(roi) == 4)
     if manual_region:
@@ -77,6 +84,26 @@ def _read_subtitle_text(engine, frame, roi=None) -> tuple[str, float]:
     else:
         # Automatic fallback for videos where the user did not draw a box.
         crop = frame[int(height * 0.52):height]
+    return crop, manual_region
+
+
+def _frame_signature(frame, roi=None):
+    """Cheap visual signature used to skip unchanged subtitle regions."""
+    import cv2
+
+    crop, _manual_region = _crop_frame(frame, roi)
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    gray = cv2.resize(gray, (192, 48), interpolation=cv2.INTER_AREA)
+    # Burned subtitles in the supported workflow use a bright fill. Comparing
+    # this mask ignores most background motion while remaining sensitive to a
+    # changed glyph, so detection/recognition can be safely skipped more often.
+    return (gray >= 185).astype("uint8") * 255
+
+
+def _read_subtitle_text(engine, frame, roi=None) -> tuple[str, float]:
+    import cv2
+
+    crop, manual_region = _crop_frame(frame, roi)
     target_width = min(960, crop.shape[1])
     if crop.shape[1] != target_width:
         target_height = max(1, round(crop.shape[0] * target_width / crop.shape[1]))
@@ -119,13 +146,44 @@ def _postprocess_segments(segments: list[dict], sample_interval: float) -> list[
         end = max(start, float(item.get("end", start)))
         if not text or end - start < min(0.32, sample_interval * 0.65):
             continue
+        confidence = float(item.get("confidence", 0.0) or 0.0)
         if cleaned and _similar_text(cleaned[-1]["text"], text) and start - cleaned[-1]["end"] <= sample_interval * 1.5:
             cleaned[-1]["end"] = end
-            if len(text) > len(cleaned[-1]["text"]):
+            if (len(text), confidence) > (len(cleaned[-1]["text"]), cleaned[-1].get("confidence", 0.0)):
                 cleaned[-1]["text"] = text
+                cleaned[-1]["confidence"] = confidence
             continue
-        cleaned.append({"start": start, "end": end, "text": text})
-    return cleaned
+        cleaned.append({"start": start, "end": end, "text": text, "confidence": confidence})
+
+    # OCR often sees one or two incomplete forms while a subtitle card is
+    # fading/changing. Group only adjacent, similar cues where at least one is
+    # short, then keep the longest/highest-confidence reading for the cluster.
+    stable = []
+    for item in cleaned:
+        if stable:
+            previous = stable[-1]
+            adjacent = item["start"] - previous["end"] <= sample_interval * 0.35
+            short_transition = min(
+                previous["end"] - previous["start"],
+                item["end"] - item["start"],
+            ) <= sample_interval * 2.2
+            similarity = _transition_similarity(previous["text"], item["text"])
+            if adjacent and short_transition and similarity >= 0.52:
+                candidates = [previous, item]
+                best = max(
+                    candidates,
+                    key=lambda value: (
+                        len(value["text"]),
+                        value.get("confidence", 0.0),
+                        value["end"] - value["start"],
+                    ),
+                )
+                previous["end"] = item["end"]
+                previous["text"] = best["text"]
+                previous["confidence"] = best.get("confidence", 0.0)
+                continue
+        stable.append(item)
+    return [{"start": x["start"], "end": x["end"], "text": x["text"]} for x in stable]
 
 
 def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
@@ -164,6 +222,12 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
     current_text = ""
     current_start = 0.0
     current_last_seen = 0.0
+    current_confidence = 0.0
+    previous_signature = None
+    previous_observed = ""
+    previous_confidence = 0.0
+    ocr_calls = 0
+    skipped_ocr = 0
     frame_index = 0
     last_percent = -1
     try:
@@ -179,28 +243,49 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
                 frame_index += 1
                 continue
             timestamp = frame_index / fps
-            observed, _confidence = _read_subtitle_text(engine, frame, roi=roi)
+            signature = _frame_signature(frame, roi)
+            visual_change = 999.0
+            if previous_signature is not None:
+                visual_change = float(cv2.absdiff(signature, previous_signature).mean())
+            # Conservative default: skip only virtually identical bright-text
+            # masks. Higher thresholds are faster but can miss a glyph during
+            # a rapid subtitle transition.
+            change_threshold = max(0.20, float(os.getenv("BILI2YT_OCR_CHANGE_THRESHOLD", "0.35")))
+            if previous_signature is not None and visual_change < change_threshold:
+                observed, confidence = previous_observed, previous_confidence
+                skipped_ocr += 1
+            else:
+                observed, confidence = _read_subtitle_text(engine, frame, roi=roi)
+                previous_signature = signature
+                previous_observed = observed
+                previous_confidence = confidence
+                ocr_calls += 1
             if observed and current_text and _similar_text(observed, current_text):
                 current_last_seen = timestamp
-                if len(observed) > len(current_text):
+                if (len(observed), confidence) > (len(current_text), current_confidence):
                     current_text = observed
+                    current_confidence = confidence
             elif observed:
                 if current_text:
                     segments.append({
                         "start": current_start,
                         "end": max(current_start + 0.05, timestamp),
                         "text": current_text,
+                        "confidence": current_confidence,
                     })
                 current_text = observed
                 current_start = timestamp
                 current_last_seen = timestamp
+                current_confidence = confidence
             elif current_text and timestamp - current_last_seen >= sample_interval * 1.5:
                 segments.append({
                     "start": current_start,
                     "end": max(current_start + 0.05, current_last_seen + sample_interval),
                     "text": current_text,
+                    "confidence": current_confidence,
                 })
                 current_text = ""
+                current_confidence = 0.0
 
             percent = min(99, int(timestamp * 100 / duration))
             if percent >= last_percent + 1:
@@ -214,8 +299,14 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
             "start": current_start,
             "end": min(duration, current_last_seen + sample_interval),
             "text": current_text,
+            "confidence": current_confidence,
         })
     segments = _postprocess_segments(segments, sample_interval)
+    total_samples = ocr_calls + skipped_ocr
+    saved_percent = round(skipped_ocr * 100 / total_samples) if total_samples else 0
+    log_callback(
+        f"[OCR] Goi model {ocr_calls}/{total_samples} khung, bo qua {saved_percent}% khung khong doi"
+    )
     log_callback(f"[OCR] Nhan duoc {len(segments)} cue tu phu de tren hinh")
     log_callback("[SrtProgress] OCR_PERCENT 100")
     return {"language": "zh", "segments": segments}
