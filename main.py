@@ -127,6 +127,29 @@ class AutoProcessDialog(QDialog):
         return values
 
 
+class SrtTranslateProcessDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Tiếp tục quy trình tự động")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Chọn các bước tiếp theo (mặc định đã chọn hết):"))
+        self.srt = QCheckBox("Quét SRT bằng PP-OCRv6 (timeline 0,1 giây)")
+        self.translate = QCheckBox("Dịch SRT bằng Gemini 3.6 Flash-High")
+        self.srt.setChecked(True)
+        self.translate.setChecked(True)
+        layout.addWidget(self.srt)
+        layout.addWidget(self.translate)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def values(self):
+        return self.srt.isChecked(), self.translate.isChecked()
+
+
 class SrtModelDialog(QDialog):
     def __init__(self, kphoto_available: bool, parent=None):
         super().__init__(parent)
@@ -1447,8 +1470,19 @@ class MainWindow(QMainWindow):
                 self._auto_active_phase = None
                 self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
                 return
-            steps = {"download": False, "separate": False, "srt": True,
-                     "translate": bool(self.auto_plan.get("translate")),
+            dialog = SrtTranslateProcessDialog(self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                self._auto_active_phase = None
+                self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
+                return
+            run_srt, run_translate = dialog.values()
+            if not run_srt and not run_translate:
+                self._auto_active_phase = None
+                self.status.setText("Chưa chọn bước Quét SRT hoặc Dịch SRT")
+                self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
+                return
+            steps = {"download": False, "separate": False, "srt": run_srt,
+                     "translate": run_translate,
                      "mux": False, "export": False}
             regions = {
                 path: list(config["ocr_roi"])
