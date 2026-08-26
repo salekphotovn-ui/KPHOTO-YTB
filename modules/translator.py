@@ -423,6 +423,36 @@ def translate_srt_batch(
             checkpoint_path, checkpoint_signature, len(cues)
         )
         resumed_count = sum(bool(text) for text in translated)
+        output_path = source_path.parent / f"{target_language}.srt"
+        # Recover useful work from an incomplete output made by an older app
+        # version that had no checkpoint yet. Only do this when that output
+        # still contains source-language lines; a complete output remains
+        # replaceable when the user intentionally selects another model.
+        if not resumed_count and output_path.is_file():
+            previous_output = _read_srt(output_path)
+            aligned = len(previous_output) == len(cues) and all(
+                abs(old["start"] - source["start"]) <= 0.002
+                and abs(old["end"] - source["end"]) <= 0.002
+                for old, source in zip(previous_output, cues)
+            )
+            incomplete_output = aligned and any(
+                re.search(r"[\u3400-\u9fff]", cue["text"])
+                for cue in previous_output
+            )
+            if incomplete_output:
+                for index, old in enumerate(previous_output):
+                    old_text = old["text"].strip()
+                    if old_text and not re.search(r"[\u3400-\u9fff]", old_text):
+                        translated[index] = old_text
+                resumed_count = sum(bool(text) for text in translated)
+                if resumed_count:
+                    _save_translation_checkpoint(
+                        checkpoint_path, checkpoint_signature, translated
+                    )
+                    log(
+                        f"[TranslateResume] Tận dụng {resumed_count}/{len(cues)} "
+                        "câu từ file dịch dở cũ"
+                    )
         if resumed_count:
             log(
                 f"[TranslateResume] Đã khôi phục {resumed_count}/{len(cues)} câu; "
@@ -574,7 +604,6 @@ def translate_srt_batch(
         for index, text in enumerate(translated):
             if not text:
                 translated[index] = cues[index]["text"]
-        output_path = source_path.parent / f"{target_language}.srt"
         output_cues = [{**cue, "text": translated[index]} for index, cue in enumerate(cues)]
         leftover_cjk = sum(bool(re.search(r"[\u4e00-\u9fff]", cue["text"])) for cue in output_cues)
         suspicious_long = sum(len(cue["text"]) > 120 for cue in output_cues)
