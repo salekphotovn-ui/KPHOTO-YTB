@@ -414,6 +414,15 @@ class MainWindow(QMainWindow):
         self.auto_button = None
         self.overlay_configs = {}
         self._last_download_percent = None
+        if not hasattr(self, "_activity_timer"):
+            self._activity_timer = QTimer(self)
+            self._activity_timer.setInterval(5000)
+            self._activity_timer.timeout.connect(self._write_activity_heartbeat)
+        self._activity_timer.start()
+
+    def _write_activity_heartbeat(self):
+        if self.thread and self.thread.isRunning():
+            self.write_log(f"[Đang chạy] Tác vụ vẫn đang hoạt động · tiến độ {self.progress.value()}%")
         self.preview_subtitles = []
         self.preview_subtitle_path = None
         self.preview_video_path = None
@@ -1280,6 +1289,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(300, self._start_pending_when_idle)
 
     def task_done(self, result):
+        if hasattr(self, "_activity_timer"):
+            self._activity_timer.stop()
         self.progress.setValue(100)
         self.status.setText("Hoàn tất")
         self.write_log(f"[V3] Hoàn tất: {result}")
@@ -1301,6 +1312,8 @@ class MainWindow(QMainWindow):
         self._release_completed_task()
 
     def task_failed(self, error):
+        if hasattr(self, "_activity_timer"):
+            self._activity_timer.stop()
         self.status.setText("Lỗi")
         self.write_log(f"[V3] LỖI: {error}")
         self._write_bug_report(error)
