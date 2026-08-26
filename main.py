@@ -699,6 +699,11 @@ class MainWindow(QMainWindow):
         self._refresh_movie_list()
 
     def _refresh_movie_list(self):
+        current_item = self.movies.currentItem()
+        selected_path = (
+            current_item.data(Qt.ItemDataRole.UserRole) if current_item is not None else None
+        )
+        item_to_restore = None
         self.movies.clear()
         video_paths = sorted(self.root.rglob("*.mp4"), key=lambda path: str(path).lower())
         for path in video_paths:
@@ -706,6 +711,10 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, str(path))
             item.setToolTip(str(path))
             self.movies.addItem(item)
+            if selected_path and str(path) == selected_path:
+                item_to_restore = item
+        if item_to_restore is not None:
+            self.movies.setCurrentItem(item_to_restore)
         self.write_log(f"[UI] Đã chọn: {self.root}")
 
     def _select_preview_video(self, current, _previous=None):
@@ -1360,6 +1369,11 @@ class MainWindow(QMainWindow):
                 self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
             elif finished_phase == 1:
                 self.auto_phase = 2
+                self.ocr_region_item.hide()
+                self.ocr_region_button.setChecked(False)
+                current = self.movies.currentItem()
+                if current is not None:
+                    self._select_preview_video(current)
                 self.status.setText("Đã dừng trước xuất; hãy căn sub Anh và Blur.")
                 self._set_auto_button("Chạy tự động · tiếp tục xuất")
             else:
