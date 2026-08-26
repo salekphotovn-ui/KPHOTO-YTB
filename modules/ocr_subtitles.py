@@ -152,15 +152,19 @@ def _read_subtitle_text(engine, frame, roi=None) -> tuple[str, float]:
 
 
 def _postprocess_segments(segments: list[dict], sample_interval: float) -> list[dict]:
+    # Keep the proven transition-stabilisation window even when timeline
+    # sampling is refined from 0.5s to 0.1s. Otherwise a fading card can create
+    # several tiny partial-text cues merely because it is observed more often.
+    stability_interval = max(0.5, sample_interval)
     cleaned = []
     for item in segments:
         text = _normalise_text(item.get("text", ""))
         start = max(0.0, float(item.get("start", 0.0)))
         end = max(start, float(item.get("end", start)))
-        if not text or end - start < min(0.32, sample_interval * 0.65):
+        if not text or end - start < min(0.32, stability_interval * 0.65):
             continue
         confidence = float(item.get("confidence", 0.0) or 0.0)
-        if cleaned and _similar_text(cleaned[-1]["text"], text) and start - cleaned[-1]["end"] <= sample_interval * 1.5:
+        if cleaned and _similar_text(cleaned[-1]["text"], text) and start - cleaned[-1]["end"] <= stability_interval * 1.5:
             cleaned[-1]["end"] = end
             if (len(text), confidence) > (len(cleaned[-1]["text"]), cleaned[-1].get("confidence", 0.0)):
                 cleaned[-1]["text"] = text
@@ -175,11 +179,11 @@ def _postprocess_segments(segments: list[dict], sample_interval: float) -> list[
     for item in cleaned:
         if stable:
             previous = stable[-1]
-            adjacent = item["start"] - previous["end"] <= sample_interval * 0.35
+            adjacent = item["start"] - previous["end"] <= stability_interval * 0.35
             short_transition = min(
                 previous["end"] - previous["start"],
                 item["end"] - item["start"],
-            ) <= sample_interval * 2.2
+            ) <= stability_interval * 2.2
             similarity = _transition_similarity(previous["text"], item["text"])
             if adjacent and short_transition and similarity >= 0.52:
                 candidates = [previous, item]
@@ -210,7 +214,7 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
     except AttributeError:
         pass
 
-    sample_interval = max(0.25, float(os.getenv("BILI2YT_OCR_INTERVAL", "0.5")))
+    sample_interval = max(0.05, float(os.getenv("BILI2YT_OCR_INTERVAL", "0.1")))
     engine = _load_engine(log_callback)
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
@@ -224,7 +228,8 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
     stride = max(1, round(fps * sample_interval))
     duration = total_frames / fps
     log_callback(
-        f"[OCR] Quet phu de tren hinh moi {sample_interval:.2f}s, video {duration / 60:.1f} phut"
+        f"[OCR] Quet moc timeline moi {sample_interval:.2f}s, "
+        f"chi goi model khi chu thay doi; video {duration / 60:.1f} phut"
     )
     if roi and len(roi) == 4:
         log_callback(
@@ -237,6 +242,7 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
     current_last_seen = 0.0
     current_confidence = 0.0
     previous_signature = None
+    last_ocr_signature = None
     previous_observed = ""
     previous_confidence = 0.0
     ocr_calls = 0
@@ -258,19 +264,30 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
             timestamp = frame_index / fps
             signature = _frame_signature(frame, roi)
             visual_change = 999.0
+            accumulated_change = 999.0
             if previous_signature is not None:
                 visual_change = float(cv2.absdiff(signature, previous_signature).mean())
+            if last_ocr_signature is not None:
+                accumulated_change = float(cv2.absdiff(signature, last_ocr_signature).mean())
             # A changed glyph produces a much larger delta than residual
             # background edges.  This default is still conservative enough for
             # one-character cards while allowing repeated frames to bypass the
             # expensive OCR model.
-            change_threshold = max(0.20, float(os.getenv("BILI2YT_OCR_CHANGE_THRESHOLD", "0.50")))
-            if previous_signature is not None and visual_change < change_threshold:
+            change_threshold = max(0.20, float(os.getenv("BILI2YT_OCR_CHANGE_THRESHOLD", "1.10")))
+            should_run_ocr = (
+                previous_signature is None
+                or visual_change >= change_threshold
+                or accumulated_change >= change_threshold * 3.0
+            )
+            # Always advance the cheap frame-to-frame baseline. The separate
+            # last-OCR baseline catches a subtitle that fades in gradually.
+            previous_signature = signature
+            if not should_run_ocr:
                 observed, confidence = previous_observed, previous_confidence
                 skipped_ocr += 1
             else:
                 observed, confidence = _read_subtitle_text(engine, frame, roi=roi)
-                previous_signature = signature
+                last_ocr_signature = signature
                 previous_observed = observed
                 previous_confidence = confidence
                 ocr_calls += 1

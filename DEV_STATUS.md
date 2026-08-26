@@ -123,3 +123,9 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 - Vị trí sub khi xuất được đổi từ pixel video sang hệ tọa độ libass `PlayResY=288`; mặc định 86% tạo `MarginV=32`, không còn bị đẩy từ gần đáy lên giữa hình.
 - Xem trước Blur lấy đúng crop của khung hình video và dùng hiệu ứng làm mờ thật; khung điều khiển chỉ còn viền vàng, không còn nền vàng che hình.
 - FFmpeg xuất bằng `gblur` Gaussian sigma 2-30 giống Blur mềm của CapCut, thay cho hiệu ứng mosaic phóng pixel.
+
+## OCR timeline chính xác 0,1 giây 26/08
+
+- PP-OCRv6 kiểm tra mặt nạ chữ mỗi 0,1 giây nhưng chỉ gọi model khi chữ thay đổi; có thêm mốc tích lũy để bắt trường hợp chữ fade dần.
+- Giữ cửa sổ ổn định 0,5 giây và loại cue nhiễu dưới khoảng 0,32 giây để quét dày không tạo thêm chữ chuyển cảnh rác.
+- Ngưỡng thay đổi mặc định 1,10, mục tiêu sai số timeline 0,1-0,2 giây; cần xác nhận chất lượng và thời gian bằng một video 2 giờ thực tế.
