@@ -1005,15 +1005,16 @@ class MainWindow(QMainWindow):
                     if self.pending_task is None:
                         self.pending_task = (task, args, kwargs)
                         self.status.setText(f"Đã xếp hàng: {task_name}")
-                        QMessageBox.information(
-                            self, "Đã xếp hàng",
-                            f"Tác vụ hiện tại đang hoàn tất. {task_name} sẽ tự chạy ngay sau đó.",
+                        self.write_log(
+                            f"[Queue] {task_name} đang chờ và sẽ tự chạy ngay khi tác vụ hiện tại đóng"
                         )
+                        QTimer.singleShot(300, self._start_pending_when_idle)
                     else:
-                        QMessageBox.information(
-                            self, "Đang xử lý",
-                            "Đã có một tác vụ chờ. Hãy đợi tác vụ đó bắt đầu.",
+                        queued_name = task_names.get(
+                            self.pending_task[0],
+                            getattr(self.pending_task[0], "__name__", "Tác vụ"),
                         )
+                        self.status.setText(f"Đang chờ tự chạy: {queued_name}")
                     return
             except RuntimeError:
                 self.thread = None
@@ -1032,6 +1033,24 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self._last_download_percent = None
         self.status.setText("Đang xử lý...")
+
+    def _start_pending_when_idle(self):
+        """Reliably launch a queued action after the previous QThread exits."""
+        if self.pending_task is None:
+            return
+        try:
+            running = bool(self.thread and self.thread.isRunning())
+        except RuntimeError:
+            running = False
+        if running:
+            QTimer.singleShot(300, self._start_pending_when_idle)
+            return
+        self.thread = None
+        self.worker = None
+        pending = self.pending_task
+        self.pending_task = None
+        task, args, kwargs = pending
+        QTimer.singleShot(0, lambda: self.start_task(task, *args, **kwargs))
 
     def _task_thread_finished(self):
         finished_thread = self.sender()
