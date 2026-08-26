@@ -383,7 +383,10 @@ def _download_video_ytdlp(
         "download:[YTDLP] percent=%(progress._percent_str)s speed=%(progress._speed_str)s eta=%(progress._eta_str)s",
         "--output", output_template,
     ]
-    attempts = [(8, "aria2c"), (4, "aria2c"), (3, "native")]
+    # aria2c repeatedly fails near completion on Windows with
+    # SocketCore "The handle specified is invalid".  yt-dlp's native
+    # downloader is a little less aggressive but resumes .part files reliably.
+    attempts = [(6, "native"), (3, "native")]
     last_error = ""
     for connections, downloader_kind in attempts:
         command = list(base)
@@ -433,7 +436,10 @@ def _download_video_ytdlp(
                 stream_closed = True
             line = raw_line.strip() if raw_line else ""
             if line:
-                output_lines.append(line)
+                safe_line = re.sub(r"https?://\S+", "[CDN URL đã ẩn]", line)
+                if len(safe_line) > 500:
+                    safe_line = safe_line[:500] + "..."
+                output_lines.append(safe_line)
                 progress = re.search(r"\[YTDLP\]\s+percent=\s*([0-9.]+)%?\s+speed=(.*?)\s+eta=(.*)$", line)
                 if progress:
                     percent = min(100.0, float(progress.group(1)))
@@ -456,9 +462,9 @@ def _download_video_ytdlp(
                             f"percent={percent} speed={speed} eta={eta}"
                         )
                     elif any(marker in line.lower() for marker in ("error", "warning", "retry", "download")):
-                        _log(f"[YTDLP] {line}")
+                        _log(f"[YTDLP] {safe_line}")
                 elif any(marker in line.lower() for marker in ("error", "warning", "retry", "download")):
-                    _log(f"[YTDLP] {line}")
+                    _log(f"[YTDLP] {safe_line}")
 
             current_bytes = 0
             newest_write_ns = 0
@@ -518,7 +524,7 @@ def _download_video_ytdlp(
 def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
                    output_dir: str = None, log_callback=None,
                    progress_index: int = 1, progress_total: int = 1) -> list[str]:
-    """Use fast maintained yt-dlp/aria2c first, then BBDown as fallback."""
+    """Use yt-dlp native downloader first, then BBDown as fallback."""
     output_dir = output_dir or DOWNLOAD_DIR
     os.makedirs(output_dir, exist_ok=True)
     try:

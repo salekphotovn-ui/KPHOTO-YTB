@@ -143,7 +143,8 @@ Mỗi thay đổi chức năng mới phải được kiểm tra và commit riên
 ## Tải Bilibili ổn định 26/08
 
 - yt-dlp mặc định không đọc cookie Chrome nên không còn vướng lỗi giải mã DPAPI; chỉ bật lại khi chủ động đặt `YTDLP_USE_BROWSER_COOKIES=1`.
-- Toàn bộ kết nối tải được ép IPv4. aria2c thử 8 rồi 4 kết nối; nếu CDN Akamai từ chối aria2c, tool tự chuyển sang downloader native 3 luồng trước khi dự phòng sang BBDown.
+- Toàn bộ kết nối tải được ép IPv4. Sau lỗi aria2c `The handle specified is invalid` tại cuối file trên Windows, đường mặc định dùng yt-dlp native 6 luồng rồi 3 luồng; giữ khả năng tiếp tục `.part`, sau cùng mới dự phòng BBDown.
 - Nút `Đăng nhập QR` mở một profile Microsoft Edge riêng của V3; yt-dlp lấy cookie trực tiếp qua giao thức điều khiển trình duyệt và ghi file Netscape cục bộ, không giải mã kho cookie Chrome bằng DPAPI.
-- Watchdog kiểm tra cả dung lượng lẫn thời gian ghi file mỗi giây (aria2 có thể tạo sẵn toàn bộ kích thước `.part`); mặc định 40 giây không có hoạt động ghi mới sẽ chuyển từ aria2c sang native, sau cùng mới sang BBDown.
+- Watchdog kiểm tra cả dung lượng lẫn thời gian ghi file mỗi giây; mặc định 40 giây không có hoạt động ghi mới sẽ thử lại native với ít luồng hơn, sau cùng mới sang BBDown.
+- URL CDN có chữ ký dài được ẩn khỏi nhật ký; chỉ giữ thông báo lỗi ngắn để khung log không bị tràn.
 - Nhật ký đọc trực tiếp dòng trạng thái `(xx%)`, `DL:` và `ETA:` của aria2c để cập nhật thanh tiến trình; không phụ thuộc progress-template của yt-dlp vốn không nhận phần trăm từ external downloader.
