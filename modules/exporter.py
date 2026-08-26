@@ -106,7 +106,17 @@ def _build_filter(
     if subtitle:
         subtitle_expr = _ffmpeg_filter_path(subtitle)
         subtitle_y_ratio = max(0.05, min(0.95, float(subtitle_y_ratio)))
-        margin_v = max(0, round(_video_height(video_path) * (1.0 - subtitle_y_ratio)))
+        # libass converts SRT into a default ASS canvas with PlayResY=288.
+        # MarginV is expressed in that script space, not in source-video
+        # pixels. Passing a 1080p pixel margin made a preview position near the
+        # bottom jump into the middle of the exported video. The preview stores
+        # the subtitle centre, so subtract half the ASS font height as well.
+        ass_play_res_y = 288
+        ass_font_size = 16
+        margin_v = max(
+            0,
+            round(ass_play_res_y * (1.0 - subtitle_y_ratio) - ass_font_size / 2),
+        )
         chains.append(f"{current}subtitles='{subtitle_expr}':force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=0,Alignment=2,MarginV={margin_v}'[vout]")
         current = "[vout]"
     if current != "[vout]":
