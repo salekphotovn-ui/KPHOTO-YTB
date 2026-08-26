@@ -79,10 +79,18 @@ class AutoProcessDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn các bước muốn chạy (mặc định đã chọn hết):"))
         self.checks = {}
-        items = [("download", "Tải video (link đã nhập)"), ("separate", "Tách vocal"), ("srt", "Quét SRT bằng PP-OCRv6 (timeline 0,1 giây)"), ("translate", "Dịch phụ đề bằng Gemini 3.6 Flash-High"), ("export", "Xuất video (tự ghép vocal local)")]
+        items = [("download", "Tải video (link đã nhập)"), ("concat", "Ghép file video"), ("rename", "Đặt tên / phân loại"), ("separate", "Tách vocal"), ("srt", "Quét SRT bằng PP-OCRv6 (timeline 0,1 giây)"), ("translate", "Dịch phụ đề bằng Gemini 3.6 Flash-High"), ("mux", "Ghép vocal (tự động khi xuất)"), ("export", "Xuất video")]
         for key, label in items:
             check = QCheckBox(label)
             check.setChecked(key != "download" or has_pending_download)
+            if key == "mux":
+                check.setChecked(True)
+                check.setEnabled(False)
+                check.setToolTip("Vocal local sẽ được ghép trực tiếp trong bước Xuất video; không tạo file trung gian.")
+            if key in {"concat", "rename"}:
+                check.setChecked(False)
+                check.setEnabled(False)
+                check.setToolTip("Thực hiện bằng nút Ghép / Đặt tên riêng vì cần chọn file hoặc xác nhận tên.")
             self.checks[key] = check
             layout.addWidget(check)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
