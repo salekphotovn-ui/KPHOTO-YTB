@@ -198,10 +198,8 @@ def _download_video_bbdown(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
         url,
         "--work-dir", output_dir,
         "--dfn-priority", dfn_priority,
-        # A Bilibili page may contain multiple parts. Keep all parts in the
-        # movie folder so the concat stage can process them together.
-        "--select-page", "ALL",
-        "--multi-file-pattern", "<videoTitle>/[P<pageNumberWithZero>]<pageTitle>",
+        "--force-http",
+        "--multi-thread",
     ]
 
     _log(f"[BBDown] Đang tải: {url}")
