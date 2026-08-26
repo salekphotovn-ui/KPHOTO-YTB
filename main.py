@@ -163,6 +163,7 @@ class TranslateDialog(QDialog):
 
 class TaskWorker(QObject):
     log = pyqtSignal(str)
+    progress = pyqtSignal(float)
     done = pyqtSignal(object)
     failed = pyqtSignal(str)
 
@@ -172,7 +173,11 @@ class TaskWorker(QObject):
 
     def run(self):
         try:
-            result = self.task(*self.args, log_callback=self.log.emit, **self.kwargs)
+            call_kwargs = dict(self.kwargs)
+            call_kwargs["log_callback"] = self.log.emit
+            if self.task is export_folder:
+                call_kwargs.setdefault("progress_callback", self.progress.emit)
+            result = self.task(*self.args, **call_kwargs)
             self.done.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -1023,6 +1028,7 @@ class MainWindow(QMainWindow):
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.log.connect(self.write_log)
+        self.worker.progress.connect(self._set_task_progress)
         self.worker.done.connect(self.task_done)
         self.worker.failed.connect(self.task_failed)
         # Quit synchronously when the worker settles. A queued quit left the UI
@@ -1036,6 +1042,13 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self._last_download_percent = None
         self.status.setText("Đang xử lý...")
+
+    def _set_task_progress(self, value):
+        try:
+            percent = max(0, min(100, round(float(value))))
+        except (TypeError, ValueError):
+            return
+        self.progress.setValue(percent)
 
     def _start_pending_when_idle(self):
         """Reliably launch a queued action after the previous QThread exits."""
