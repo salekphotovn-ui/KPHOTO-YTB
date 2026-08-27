@@ -81,7 +81,7 @@ def _timestamp(seconds: float) -> str:
 
 
 def _parse_translation_response(raw: str) -> dict[int, str]:
-    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(raw or "").strip())
     try:
         data = json.loads(text, strict=False)
         items = data.get("translations", []) if isinstance(data, dict) else []
@@ -289,7 +289,8 @@ def _gemini_translate(items: list[dict], source: str, target: str, model: str, a
         detail = response.text[:300] if response is not None else "no response"
         raise RuntimeError(f"Gemini HTTP {status}: {detail}")
     candidates = response.json().get("candidates", [])
-    text = candidates[0]["content"]["parts"][0].get("text", "") if candidates else ""
+    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text") if candidates else ""
+    text = str(text or "")
     text = re.sub(r"^```json\s*|\s*```$", "", text.strip())
     return _parse_translation_response(text)
 
