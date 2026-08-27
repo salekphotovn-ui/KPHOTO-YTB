@@ -1260,6 +1260,12 @@ class MainWindow(QMainWindow):
             (r"\[ExportProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang xử lý: {}"),
             (r"\[ExportProgress\]\s+DONE\s+\d+/\d+", "Đã xử lý xong video"),
         )
+        # Keep the ffmpeg command diagnostic informational: it contains
+        # ``-loglevel error`` but does not indicate a failure.
+        if text.startswith("[Mux] ") and ("-loglevel error" in text.lower() or "-loglevel ERROR" in text):
+            self.log_view.append(text)
+            self.log_view.ensureCursorVisible()
+            return
         for pattern, template in patterns:
             found = re.search(pattern, text, re.IGNORECASE)
             if found:
