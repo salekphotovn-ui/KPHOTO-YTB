@@ -40,8 +40,8 @@ def load_local_provider_config() -> None:
             os.environ["GEMINI36_API_KEY"] = str(data["gemini36_api_key"])
 
 # GitHub repository that owns the dedicated V3 releases.
-GITHUB_OWNER = ""
-GITHUB_REPO = ""
+GITHUB_OWNER = "salekphotovn-ui"
+GITHUB_REPO = "KPHOTO-YTB"
 GITHUB_ASSET_NAME = "KPHOTO-YTB_update.zip"
 
 
