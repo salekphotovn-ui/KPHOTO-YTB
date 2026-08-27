@@ -233,8 +233,10 @@ def export_folder(
     overlay_configs=None,
 ) -> list[str]:
     root = Path(folder_path)
+    all_videos = [path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and "_Export" not in path.stem]
+    muxed_stems = {path.stem[:-len("_Da_Ghep_Vocal")] for path in all_videos if path.stem.endswith("_Da_Ghep_Vocal")}
     videos = sorted(
-        (path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and "_Export" not in path.stem),
+        (path for path in all_videos if not (path.stem in muxed_stems and not path.stem.endswith("_Da_Ghep_Vocal"))),
         key=lambda path: str(path).casefold(),
     )
     results = []
