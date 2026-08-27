@@ -1268,6 +1268,17 @@ class MainWindow(QMainWindow):
                     return
             except RuntimeError:
                 self.thread = None
+        task_labels = {
+            export_folder: "Xuất video", translate_srt_batch: "Dịch phụ đề",
+            create_srt_batch: "Tạo SRT", separate_folder: "Tách vocal",
+            mux_folder: "Ghép vocal", run_download_and_auto_pipeline: "Tải video",
+        }
+        self._active_task_label = task_labels.get(task, getattr(task, "__name__", "Quy trình"))
+        self.log_view.clear()
+        self._last_download_percent = None
+        self._last_separator_percent = None
+        self.progress.setValue(0)
+        self.log_view.append(f"[Bắt đầu] {self._active_task_label}")
         self.thread = QThread(self)
         self.worker = TaskWorker(task, *args, **kwargs)
         self.worker.moveToThread(self.thread)
@@ -1364,6 +1375,10 @@ class MainWindow(QMainWindow):
         self.progress.setValue(100)
         self.status.setText("Hoàn tất")
         self.write_log(f"[V3] Hoàn tất: {result}")
+        label = getattr(self, "_active_task_label", "Quy trình")
+        self.log_view.clear()
+        self.log_view.append(f"[Hoàn tất] {label}: {self.root.name}")
+        self.log_view.ensureCursorVisible()
         if self._auto_active_phase is not None:
             finished_phase = self._auto_active_phase
             self._auto_active_phase = None
