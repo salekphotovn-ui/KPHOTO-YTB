@@ -449,6 +449,22 @@ class DownloadDialog(QDialog):
         return [line.strip() for line in self.urls.toPlainText().splitlines() if line.strip()], self.dfn.currentData()
 
 
+class ExportDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Xuất video")
+        self.resize(420, 150)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Chọn các bước trước khi xuất:"))
+        self.mux_vocal = QCheckBox("Ghép vocal (dùng file Vocals local, tắt audio gốc)")
+        self.mux_vocal.setChecked(True)
+        layout.addWidget(self.mux_vocal)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1585,6 +1601,9 @@ class MainWindow(QMainWindow):
         self.start_task(mux_folder, str(self.root))
 
     def export(self):
+        dialog = ExportDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
         # Keep the selected video and current frame visible during export.
         # FFmpeg only reads the source and exporter no longer deletes it, so
         # releasing the QMediaPlayer source is unnecessary and caused a black
@@ -1592,7 +1611,11 @@ class MainWindow(QMainWindow):
         self.media_player.pause()
         self.preview_play.setText("▶")
         configs = {path: dict(config) for path, config in self.overlay_configs.items()}
-        self.start_task(export_folder, str(self.root), overlay_configs=configs)
+        if dialog.mux_vocal.isChecked():
+            self.start_task(mux_folder, str(self.root))
+            self.start_task(export_folder, str(self.root), overlay_configs=configs)
+        else:
+            self.start_task(export_folder, str(self.root), overlay_configs=configs)
 
 
 def main():
