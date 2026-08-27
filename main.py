@@ -99,6 +99,16 @@ def run_download_and_auto_pipeline(folder: str, urls: list[str], dfn_priority: s
     return run_auto_pipeline(folder, steps, log_callback=log_callback)
 
 
+def mux_and_export(folder: str, overlay_configs=None, log_callback=None):
+    """Ghép vocal local rồi xuất hiệu ứng/phụ đề trong một tác vụ."""
+    if log_callback:
+        log_callback("[AutoStage] Ghép vocal trước khi xuất")
+    mux_folder(folder, log_callback=log_callback)
+    if log_callback:
+        log_callback("[AutoStage] Xuất video (blur + phụ đề)")
+    return export_folder(folder, log_callback=log_callback, overlay_configs=overlay_configs)
+
+
 class AutoProcessDialog(QDialog):
     def __init__(self, has_pending_download=False, parent=None):
         super().__init__(parent)
@@ -1635,8 +1645,7 @@ class MainWindow(QMainWindow):
         self.preview_play.setText("▶")
         configs = {path: dict(config) for path, config in self.overlay_configs.items()}
         if dialog.mux_vocal.isChecked():
-            self.start_task(mux_folder, str(self.root))
-            self.start_task(export_folder, str(self.root), overlay_configs=configs)
+            self.start_task(mux_and_export, str(self.root), overlay_configs=configs)
         else:
             self.start_task(export_folder, str(self.root), overlay_configs=configs)
 

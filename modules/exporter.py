@@ -247,6 +247,9 @@ def export_folder(
         try:
             configs = overlay_configs or {}
             config = configs.get(str(video.resolve()), configs.get(str(video), {}))
+            if not config and video.stem.endswith("_Da_Ghep_Vocal"):
+                original = video.with_name(video.stem[:-len("_Da_Ghep_Vocal")] + video.suffix)
+                config = configs.get(str(original.resolve()), configs.get(str(original), {}))
             video_blur = config.get("blur_boxes", blur_boxes)
             video_logo = config.get("logo_path", logo_path)
             video_subtitle_y = config.get("subtitle_y_ratio", 0.86)
