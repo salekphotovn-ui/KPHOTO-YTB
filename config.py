@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 
-APP_NAME = "Bili2YT V3"
+APP_NAME = "KPHOTO-YTB"
 VERSION = "0.1.0"
 
 
@@ -42,7 +42,7 @@ def load_local_provider_config() -> None:
 # GitHub repository that owns the dedicated V3 releases.
 GITHUB_OWNER = ""
 GITHUB_REPO = ""
-GITHUB_ASSET_NAME = "Bili2YT_V3_update.zip"
+GITHUB_ASSET_NAME = "KPHOTO-YTB_update.zip"
 
 
 def app_dir() -> Path:

@@ -506,7 +506,7 @@ class MainWindow(QMainWindow):
         self._updating_ocr_region = False
         self._updating_blur_region = False
         self._last_preview_frame_image = None
-        self.setWindowTitle("Bili2YT - Video Workspace / V3")
+        self.setWindowTitle("KPHOTO-YTB - Video Workspace")
         self.resize(1200, 780)
         self._build_ui_v3()
 
@@ -533,7 +533,7 @@ class MainWindow(QMainWindow):
             QRadioButton:disabled { color: #777777; }
             QRadioButton::indicator:disabled { border-color: #555555; background: #151515; }
         """)
-        brand = QLabel("Bili2YT"); brand.setObjectName("brand")
+        brand = QLabel("KPHOTO-YTB"); brand.setObjectName("brand")
         eyebrow = QLabel("VIDEO WORKSPACE / V3"); eyebrow.setObjectName("eyebrow")
         header = QHBoxLayout(); header.addWidget(brand); header.addWidget(eyebrow); header.addStretch(1); header.addWidget(QPushButton("Cài đặt / Đăng nhập"))
         self.folder_label = QLabel("Chưa chọn thư mục tổng"); self.folder_label.setObjectName("muted")
