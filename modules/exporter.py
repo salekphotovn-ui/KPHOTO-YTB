@@ -286,9 +286,6 @@ def export_folder(
                         continue
                     if item.is_file() and item.suffix.casefold() == ".txt":
                         continue
-                    # Preserve other completed exports as well.
-                    if item.is_file() and "_export" in item.stem.casefold():
-                        continue
                     try:
                         if item.is_file():
                             item.unlink()
