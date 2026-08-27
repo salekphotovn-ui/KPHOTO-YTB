@@ -43,6 +43,10 @@ def load_local_provider_config() -> None:
 GITHUB_OWNER = "salekphotovn-ui"
 GITHUB_REPO = "KPHOTO-YTB"
 GITHUB_ASSET_NAME = "KPHOTO-YTB_update.zip"
+# First-run resource bundles hosted outside GitHub's 2 GB release limit.
+REMOTE_BIN_URL = "http://gofile.me/4PS53/HDi0OPcwW"
+REMOTE_MODELS_URL = "http://gofile.me/4PS53/AkkezfdHw"
+REMOTE_RUNTIME_URL = "http://gofile.me/4PS53/jkbfv7qut"
 
 
 def app_dir() -> Path:

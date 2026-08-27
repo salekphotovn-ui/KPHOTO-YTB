@@ -8,6 +8,15 @@ if not exist "%PYTHON_EXE%" (
   exit /b 1
 )
 if not exist "venv\Scripts\python.exe" "%PYTHON_EXE%" -m venv venv
+if not exist "bin\ffmpeg.exe" curl.exe -L --fail --retry 3 -o bin.zip "http://gofile.me/4PS53/HDi0OPcwW"
+if exist bin.zip if not exist "bin\ffmpeg.exe" powershell -NoProfile -Command "Expand-Archive -LiteralPath bin.zip -DestinationPath . -Force"
+if exist bin.zip del /q bin.zip
+if not exist "models" curl.exe -L --fail --retry 3 -o models.zip "http://gofile.me/4PS53/AkkezfdHw"
+if exist models.zip powershell -NoProfile -Command "Expand-Archive -LiteralPath models.zip -DestinationPath . -Force"
+if exist models.zip del /q models.zip
+if not exist "runtime\_internal" curl.exe -L --fail --retry 3 -o runtime.zip "http://gofile.me/4PS53/jkbfv7qut"
+if exist runtime.zip powershell -NoProfile -Command "Expand-Archive -LiteralPath runtime.zip -DestinationPath runtime -Force"
+if exist runtime.zip del /q runtime.zip
 venv\Scripts\python.exe -m pip install -r requirements.txt
 where nvidia-smi >nul 2>&1
 if not errorlevel 1 (
