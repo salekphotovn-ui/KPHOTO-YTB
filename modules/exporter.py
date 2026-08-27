@@ -84,14 +84,14 @@ def _build_filter(
 ) -> str:
     chains = ["[0:v]setpts=PTS-STARTPTS[base]"]
     current = "[base]"
-    blur_sigma = max(2, min(60, int(blur_strength)))
+    blur_sigma = max(0, min(100, int(blur_strength)))
     for index, box in enumerate(blur_boxes):
         x, y, width, height = [max(0.0, min(1.0, float(value))) for value in box]
         # Gaussian blur matches the soft CapCut-style effect instead of the
         # blocky mosaic produced by downscaling and enlarging the crop.
         crop = (
             f"crop=iw*{width:.6f}:ih*{height:.6f}:iw*{x:.6f}:ih*{y:.6f},"
-            f"gblur=sigma={blur_sigma}:steps=2"
+            f"gblur=sigma={blur_sigma}:steps=4"
         )
         chains.append(
             f"{current}split=2[keep{index}][patch{index}];"
