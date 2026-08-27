@@ -876,7 +876,9 @@ class MainWindow(QMainWindow):
 
     def _update_blur_item_brush(self, strength):
         self.blur_region_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.blur_preview_effect.setBlurRadius(float(max(0, strength)) * 3.0)
+        # Blur is rendered into the cropped pixmap itself.  Keeping a
+        # QGraphicsBlurEffect on top creates transparent/gradient edges.
+        self.blur_preview_effect.setEnabled(False)
         self._render_blur_preview()
 
     def _preview_frame_for_blur(self, frame):
@@ -905,6 +907,21 @@ class MainWindow(QMainWindow):
         crop_width = max(1, min(image.width() - left, round(width * image.width())))
         crop_height = max(1, min(image.height() - top, round(height * image.height())))
         crop = image.copy(left, top, crop_width, crop_height)
+        strength = int(config.get("blur_strength", self.blur_strength.value()))
+        if strength > 0:
+            # Downsample then upsample the exact rectangle. This produces a
+            # uniform CapCut-like blur patch with no feathered border.
+            factor = max(1, round(18 - strength * 0.16))
+            small = crop.scaled(
+                max(1, crop_width // factor), max(1, crop_height // factor),
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            crop = small.scaled(
+                crop_width, crop_height,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
         box = self.blur_region_item.scene_box()
         target_width = max(1, round(box.width()))
         target_height = max(1, round(box.height()))
