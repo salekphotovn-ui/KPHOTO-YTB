@@ -74,7 +74,9 @@ def mux_vocal_into_video(video_path: str, vocal_path: str, output_path: str = No
         _log(f"[MuxProgress] DURATION {duration:.2f}")
 
     _log(f"[Mux] Đang ghép: {os.path.basename(video_path)} + {os.path.basename(vocal_path)}")
-    _log(f"[Mux] Lệnh chạy: {' '.join(cmd)}")
+    # Do not dump the full FFmpeg command into the compact UI log: paths and
+    # ``-loglevel error`` make it look like a failure and overwhelm the log.
+    _log("[Mux] FFmpeg đang ghép video và vocal...")
 
     process = subprocess.Popen(
         cmd,
