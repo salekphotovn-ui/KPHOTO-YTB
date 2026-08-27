@@ -231,6 +231,7 @@ def export_folder(
     log_callback=None,
     progress_callback=None,
     overlay_configs=None,
+    cleanup_after_export=True,
 ) -> list[str]:
     root = Path(folder_path)
     all_videos = [path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and "_Export" not in path.stem]
@@ -274,6 +275,29 @@ def export_folder(
             ))
             if log_callback:
                 log_callback(f"[ExportProgress] DONE {index}/{len(videos)}")
+            if cleanup_after_export:
+                folder = video.parent
+                output_path = Path(results[-1]).resolve()
+                removed = 0
+                for item in folder.iterdir():
+                    if item.resolve() == output_path:
+                        continue
+                    if item.is_dir() and item.name.casefold() == "subtitles":
+                        continue
+                    if item.is_file() and item.suffix.casefold() == ".txt":
+                        continue
+                    # Preserve other completed exports as well.
+                    if item.is_file() and "_export" in item.stem.casefold():
+                        continue
+                    try:
+                        if item.is_file():
+                            item.unlink()
+                            removed += 1
+                    except OSError as cleanup_error:
+                        if log_callback:
+                            log_callback(f"[Export] Không xóa được {item.name}: {cleanup_error}")
+                if log_callback:
+                    log_callback(f"[Export] Đã dọn thư mục {folder.name}, xóa {removed} file trung gian")
         except Exception as exc:
             if log_callback:
                 log_callback(f"[ExportProgress] FAIL {index}/{len(videos)} {video.name}: {exc}")
