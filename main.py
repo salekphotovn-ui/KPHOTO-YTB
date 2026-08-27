@@ -625,7 +625,7 @@ class MainWindow(QMainWindow):
         self.blur_strength_label = QLabel("Mờ 12")
         controls.addWidget(self.blur_strength_label)
         self.blur_strength = QSlider(Qt.Orientation.Horizontal)
-        self.blur_strength.setRange(2, 30)
+        self.blur_strength.setRange(2, 60)
         self.blur_strength.setValue(12)
         self.blur_strength.setMaximumWidth(90)
         self.blur_strength.valueChanged.connect(self._blur_strength_changed)
@@ -822,7 +822,7 @@ class MainWindow(QMainWindow):
             else:
                 self.blur_region_item.hide()
                 self.blur_preview_item.hide()
-            strength = max(2, min(30, int(video_config.get("blur_strength", 12))))
+            strength = max(2, min(60, int(video_config.get("blur_strength", 12))))
             self.blur_strength.setValue(strength)
             self.blur_strength_label.setText(f"Mờ {strength}")
             self._update_blur_item_brush(strength)
@@ -876,7 +876,7 @@ class MainWindow(QMainWindow):
 
     def _update_blur_item_brush(self, strength):
         self.blur_region_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.blur_preview_effect.setBlurRadius(max(3.0, float(strength) * 1.35))
+        self.blur_preview_effect.setBlurRadius(max(3.0, float(strength) * 2.0))
         self._render_blur_preview()
 
     def _preview_frame_for_blur(self, frame):
@@ -918,7 +918,7 @@ class MainWindow(QMainWindow):
         self.blur_preview_item.show()
 
     def _blur_strength_changed(self, value):
-        value = max(2, min(30, int(value)))
+        value = max(2, min(60, int(value)))
         self.blur_strength_label.setText(f"Mờ {value}")
         self._update_blur_item_brush(value)
         if self._updating_blur_region or not self.preview_video_path:
