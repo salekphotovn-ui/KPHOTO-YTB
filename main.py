@@ -27,6 +27,8 @@ from modules.exporter import export_folder
 from modules.downloader import bbdown_login, download_multiple, has_login_session
 from modules.rename import auto_rename_folder
 from modules.concat import concat_videos
+from modules.updater import latest_release
+from config import VERSION
 
 
 def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, ocr_regions=None, overlay_configs=None):
@@ -509,6 +511,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("KPHOTO-YTB - Video Workspace")
         self.resize(1200, 780)
         self._build_ui_v3()
+        QTimer.singleShot(1500, self._check_for_update)
+
+    def _check_for_update(self):
+        """Non-blocking lightweight release check; download remains user-confirmed."""
+        release = latest_release()
+        if not release:
+            return
+        tag = str(release.get("tag_name", "")).lstrip("v")
+        if tag and tag != VERSION:
+            self.status.setText(f"Có bản cập nhật KPHOTO-YTB {tag}")
+            self.write_log(f"[Update] Có bản mới {tag}: {release.get('html_url', '')}")
 
     def _build_ui_v3(self):
         self.setMinimumSize(1100, 720)
