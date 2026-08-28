@@ -4,7 +4,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -18,24 +17,17 @@ PACKAGES = (
 
 
 def download(url: str, target: Path, label: str) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "KPHOTO-YTB-Setup"})
-    with urllib.request.urlopen(request, timeout=90) as response, target.open("wb") as output:
-        total = int(response.headers.get("Content-Length") or 0)
-        received = 0
-        last_percent = -1
-        while True:
-            chunk = response.read(1024 * 1024)
-            if not chunk:
-                break
-            output.write(chunk)
-            received += len(chunk)
-            if total:
-                percent = int(received * 100 / total)
-                if percent != last_percent and (percent % 5 == 0 or percent == 100):
-                    print(f"[{label}] {percent}%", flush=True)
-                    last_percent = percent
-            else:
-                print(f"[{label}] {received / 1024 / 1024:.1f} MB", end="\r", flush=True)
+    # Windows curl uses the machine certificate store (Schannel), avoiding
+    # CERTIFICATE_VERIFY_FAILED on clean employee PCs where the embedded
+    # Python/OpenSSL bundle cannot locate the local issuer certificate.
+    command = [
+        "curl.exe", "-L", "--fail", "--retry", "5",
+        "--retry-delay", "2", "--connect-timeout", "30",
+        "--user-agent", "KPHOTO-YTB-Setup", "--output", str(target), url,
+    ]
+    result = subprocess.run(command, check=False)
+    if result.returncode != 0 or not target.exists() or target.stat().st_size == 0:
+        raise RuntimeError(f"Không tải được {label} (curl={result.returncode})")
 
 
 def safe_extract(archive: Path, destination: Path) -> None:
