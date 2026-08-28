@@ -27,7 +27,7 @@ from modules.exporter import export_folder
 from modules.downloader import bbdown_login, download_multiple, has_login_session
 from modules.rename import auto_rename_folder
 from modules.concat import concat_videos
-from modules.updater import latest_release
+from modules.updater import latest_release, download_and_install
 from config import VERSION
 
 
@@ -514,7 +514,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1500, self._check_for_update)
 
     def _check_for_update(self):
-        """Non-blocking lightweight release check; download remains user-confirmed."""
+        """Check the latest release and offer an in-place executable update."""
         release = latest_release()
         if not release:
             return
@@ -522,6 +522,22 @@ class MainWindow(QMainWindow):
         if tag and tag != VERSION:
             self.status.setText(f"Có bản cập nhật KPHOTO-YTB {tag}")
             self.write_log(f"[Update] Có bản mới {tag}: {release.get('html_url', '')}")
+            assets = release.get("assets") or []
+            asset = next((item for item in assets if item.get("name") == "KPHOTO-YTB_update.zip"), None)
+            if not asset:
+                self.write_log("[Update] Release chưa có KPHOTO-YTB_update.zip")
+                return
+            answer = QMessageBox.question(
+                self, "Cập nhật KPHOTO-YTB",
+                f"Có phiên bản {tag}. Tải và cài đặt ngay?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self.status.setText("Đang tải bản cập nhật...")
+                if download_and_install(asset.get("browser_download_url", "")):
+                    QApplication.quit()
+                else:
+                    QMessageBox.warning(self, "Cập nhật lỗi", "Không thể tải hoặc cài bản cập nhật.")
 
     def _build_ui_v3(self):
         self.setMinimumSize(1100, 720)

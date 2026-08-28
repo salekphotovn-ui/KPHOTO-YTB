@@ -22,10 +22,19 @@ def download_and_install(asset_url: str, asset_name: str = "KPHOTO-YTB_update.zi
                 dst.write(chunk)
         extract_dir = os.path.join(temp_dir, "new")
         with zipfile.ZipFile(archive) as zf:
+            base = os.path.abspath(extract_dir) + os.sep
+            for member in zf.infolist():
+                target = os.path.abspath(os.path.join(extract_dir, member.filename))
+                if not target.startswith(base):
+                    raise ValueError("Invalid update archive path")
             zf.extractall(extract_dir)
+        new_exe = os.path.join(extract_dir, os.path.basename(sys.executable))
+        if not os.path.isfile(new_exe):
+            raise ValueError("Update archive does not contain KPHOTO-YTB.exe")
         script = os.path.join(temp_dir, "apply_update.bat")
         with open(script, "w", encoding="utf-8") as f:
             f.write("@echo off\r\ntimeout /t 2 /nobreak >nul\r\n")
+            f.write(f'copy /Y "{sys.executable}" "{sys.executable}.bak" >nul\r\n')
             f.write(f'xcopy /E /I /Y "{extract_dir}\\*" "{app_dir}\\" >nul\r\n')
             f.write(f'start "" "{sys.executable}"\r\n')
         subprocess.Popen(["cmd.exe", "/c", script], creationflags=0x08000000)
