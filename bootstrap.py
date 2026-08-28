@@ -49,11 +49,28 @@ def safe_extract(archive: Path, destination: Path) -> None:
         zipped.extractall(destination)
 
 
+def create_desktop_shortcut(app_exe: Path) -> None:
+    script = (
+        "$desktop=[Environment]::GetFolderPath('Desktop');"
+        "$shell=New-Object -ComObject WScript.Shell;"
+        "$shortcut=$shell.CreateShortcut((Join-Path $desktop 'KPHOTO-YTB.lnk'));"
+        f"$shortcut.TargetPath='{str(app_exe).replace("'", "''")}';"
+        f"$shortcut.WorkingDirectory='{str(app_exe.parent).replace("'", "''")}';"
+        f"$shortcut.IconLocation='{str(app_exe).replace("'", "''")},0';"
+        "$shortcut.Save()"
+    )
+    subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        check=False, creationflags=0x08000000,
+    )
+
+
 def main() -> int:
     install_dir = Path(sys.executable).resolve().parent
     app_exe = install_dir / "KPHOTO-YTB.exe"
     required = (app_exe, install_dir / "_internal", install_dir / "bin", install_dir / "models")
     if all(path.exists() for path in required):
+        create_desktop_shortcut(app_exe)
         subprocess.Popen([str(app_exe)], cwd=str(install_dir))
         return 0
 
@@ -72,6 +89,7 @@ def main() -> int:
 
     if not app_exe.exists():
         raise RuntimeError("Không tìm thấy KPHOTO-YTB.exe sau khi cài đặt")
+    create_desktop_shortcut(app_exe)
     print("Cài đặt hoàn tất. Đang mở KPHOTO-YTB...", flush=True)
     subprocess.Popen([str(app_exe)], cwd=str(install_dir))
     return 0
