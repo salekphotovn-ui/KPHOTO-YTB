@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, QSizeF, QRectF, QPointF, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPen, QPixmap
+from PyQt6.QtGui import QColor, QBrush, QPen, QPixmap, QIcon
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
@@ -1681,6 +1681,10 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    if getattr(sys, "frozen", False):
+        app.setWindowIcon(QIcon(sys.executable))
+    else:
+        app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "assets" / "kphoto-ytb.ico")))
     app.setStyleSheet("QMainWindow,QWidget{background:#050505;color:#fff} QPushButton{padding:8px 12px}")
     window = MainWindow()
     screen = QApplication.primaryScreen().availableGeometry()
