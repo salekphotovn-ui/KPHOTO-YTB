@@ -3,6 +3,10 @@ __pycache__/
 bin/
 output/
 models/
+build/
+dist/
+*.spec
+KPHOTO-YTB_*.zip
 download_test_tmp/
 *.pyc
 *.log
