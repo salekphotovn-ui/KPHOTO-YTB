@@ -10,9 +10,11 @@ from pathlib import Path
 
 PACKAGES = (
     ("Ứng dụng", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_update.zip"),
-    ("FFmpeg và BBDown", "http://gofile.me/4PS53/HDi0OPcwW"),
-    ("Models", "http://gofile.me/4PS53/AkkezfdHw"),
-    ("Runtime", "http://gofile.me/4PS53/jkbfv7qut"),
+    ("FFmpeg và BBDown", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_bin.zip"),
+    ("Models", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_models.zip"),
+    ("Runtime cơ bản", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_runtime_core.zip"),
+    ("Runtime CUDA 1/2", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_runtime_cuda_a.zip"),
+    ("Runtime CUDA 2/2", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_runtime_cuda_b.zip"),
 )
 
 
