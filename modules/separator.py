@@ -86,28 +86,33 @@ def _choose_chunk_duration(log) -> int:
         return 30 * 60
 
 
-def _separator_executable() -> str:
-    """Locate the audio-separator CLI (source venv or frozen distribution)."""
+def _separator_executable() -> list[str]:
+    """Return the argv prefix that runs the audio-separator CLI.
+
+    Frozen build: re-invoke this same executable with ``--run-audio-separator``
+    (main.py dispatches it to ``audio_separator.utils.cli``), so the bundled
+    torch / onnxruntime are reused and no second Python environment ships.
+    Source checkout: the ``audio-separator.exe`` console script from the venv.
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--run-audio-separator"]
+
     project_root = Path(__file__).resolve().parents[1]
     exe_dir = Path(sys.executable).resolve().parent
     names = ("audio-separator.exe", "audio-separator")
     roots = [
-        project_root / "venv" / "Scripts",   # source checkout
-        exe_dir,                              # next to KPHOTO-YTB.exe
-        exe_dir / "bin",                      # shipped in KPHOTO-YTB_bin.zip
-        exe_dir / "_internal",               # bundled by PyInstaller
-        exe_dir / "_internal" / "Scripts",
-        project_root,                         # _internal itself, frozen
-        project_root / "Scripts",
+        project_root / "venv" / "Scripts",
+        exe_dir,
+        exe_dir / "Scripts",
+        project_root,
     ]
     for root in roots:
         for name in names:
             candidate = root / name
             if candidate.is_file():
-                return str(candidate)
+                return [str(candidate)]
     raise FileNotFoundError(
-        "Không tìm thấy audio-separator. Bản đóng gói cần audio-separator.exe "
-        "đặt cạnh KPHOTO-YTB.exe hoặc trong thư mục bin."
+        "Không tìm thấy audio-separator. Cài audio-separator[gpu] vào venv của V3."
     )
 
 
@@ -223,7 +228,7 @@ def _media_duration_seconds(input_path: str) -> float:
 
 
 def _separate_long_vocal_single_pass(input_path: str, output_dir: str, model: str,
-                                     duration: float, separator_exe: str, log) -> str:
+                                     duration: float, separator_exe: list, log) -> str:
     """Run one UVR process and let audio-separator chunk the long audio internally."""
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     work_dir = os.path.join(output_dir, f".{base_name}_separator_work")
@@ -236,7 +241,7 @@ def _separate_long_vocal_single_pass(input_path: str, output_dir: str, model: st
         log("[Separator] Xu ly truc tiep MP4, khong tao audio tam toan bo.")
         chunk_seconds = _choose_chunk_duration(log)
         separator_cmd = [
-            separator_exe, input_path,
+            *separator_exe, input_path,
             "--model_filename", model,
             "--output_format", "FLAC",
             "--output_dir", temp_output_dir,
@@ -274,7 +279,7 @@ def _separate_long_vocal_single_pass(input_path: str, output_dir: str, model: st
 
 
 def _separate_large_source_chunked(input_path: str, output_dir: str, model: str,
-                                    duration: float, separator_exe: str, log) -> str:
+                                    duration: float, separator_exe: list, log) -> str:
     """Process oversized media in 30-minute audio chunks without a >4GB temp file."""
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     chunk_seconds = _choose_chunk_duration(log)
@@ -307,7 +312,7 @@ def _separate_large_source_chunked(input_path: str, output_dir: str, model: str,
                 raise RuntimeError(f"KhÃ´ng trÃ­ch xuáº¥t Ä‘Æ°á»£c Ä‘oáº¡n {index + 1}: {extracted.stderr[-800:]}")
 
             separator_cmd = [
-                separator_exe, chunk_input,
+                *separator_exe, chunk_input,
                 "--model_filename", model,
                 "--output_format", "FLAC",
                 "--output_dir", chunk_output,
@@ -317,7 +322,7 @@ def _separate_large_source_chunked(input_path: str, output_dir: str, model: str,
             ]
             if model.lower().endswith((".yaml", ".yml")):
                 separator_cmd = [
-                    separator_exe, chunk_input,
+                    *separator_exe, chunk_input,
                     "--model_filename", model,
                     "--output_format", "FLAC",
                     "--output_dir", chunk_output,
@@ -370,7 +375,7 @@ def _separate_large_source_chunked(input_path: str, output_dir: str, model: str,
 
 
 def _separate_long_vocal(input_path: str, output_dir: str, model: str,
-                         duration: float, separator_exe: str, log) -> str:
+                         duration: float, separator_exe: list, log) -> str:
     """Separate long media in bounded audio chunks, then join vocal stems."""
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     # Normalize once, then use larger chunks to reduce model startup overhead.
@@ -407,7 +412,7 @@ def _separate_long_vocal(input_path: str, output_dir: str, model: str,
         separated_dir = os.path.join(work_dir, "separated")
         os.makedirs(separated_dir, exist_ok=True)
         separator_cmd = [
-            separator_exe, normalized_audio,
+            *separator_exe, normalized_audio,
             "--model_filename", model,
             "--output_format", "FLAC",
             "--output_dir", separated_dir,
@@ -527,7 +532,7 @@ def _separate_long_vocal(input_path: str, output_dir: str, model: str,
                 )
 
             separator_cmd = [
-                separator_exe, chunk_input,
+                *separator_exe, chunk_input,
                 "--model_filename", model,
                 "--output_format", "FLAC",
                 "--output_dir", chunk_output_dir,
@@ -676,7 +681,7 @@ def separate_vocal(input_path: str, output_dir: str = None,
 
     def _build_cmd(segment_size=None):
         cmd = [
-            separator_exe,
+            *separator_exe,
             separator_input,
             "--model_filename", selected_model,
             "--output_format", "WAV",

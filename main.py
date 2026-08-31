@@ -6,6 +6,14 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+if "--run-audio-separator" in sys.argv:
+    # Frozen helper mode: this executable doubles as the audio-separator CLI so
+    # the packaged torch / onnxruntime are reused instead of shipping a second
+    # Python environment. Strip our sentinel and hand the rest to its argparse.
+    sys.argv = [sys.argv[0]] + [a for a in sys.argv[1:] if a != "--run-audio-separator"]
+    from audio_separator.utils.cli import main as _audio_separator_main
+    raise SystemExit(_audio_separator_main())
+
 from modules.win_no_console import install as _install_no_console
 _install_no_console()
 
