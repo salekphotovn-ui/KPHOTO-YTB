@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 APP_NAME = "KPHOTO-YTB"
-VERSION = "0.3.6"
+VERSION = "0.3.7"
 # Release tag that hosts the large, rarely-changing bootstrap payloads
 # (bin / models / runtime). The versioned executable update is published
 # separately as KPHOTO-YTB_update.zip on the release matching VERSION.
@@ -42,9 +42,13 @@ def load_local_provider_config() -> None:
         #   - "Gemini 3.6 Flash-High" -> gemini_base_url + gemini_api_key
         #     (an OpenAI-compatible third-party endpoint)
         #   - "Gemini" -> Google's official API, gemini_api_key
+        # gemini36_api_key is the key actually provisioned for
+        # "gemini-3.6-flash-high" on the third-party endpoint; the generic
+        # gemini_api_key slot has historically held a stale key, so it is only
+        # a fallback.
         gemini_key = (
-            data.get("gemini_api_key")
-            or data.get("gemini36_api_key")
+            data.get("gemini36_api_key")
+            or data.get("gemini_api_key")
             or data.get("gemini31_api_key")
             or data.get("qwen_api_key")
         )
