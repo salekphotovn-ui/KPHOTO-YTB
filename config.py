@@ -23,21 +23,18 @@ def load_local_provider_config() -> None:
         return
     if isinstance(data, dict):
         # An explicit config.local.json is the shared, persistent configuration
-        # selected by the user.  It must win over stale variables inherited
-        # from a PowerShell window, otherwise one provider can receive another
-        # provider's key after the app is restarted.
-        if data.get("qwen_api_key"):
-            os.environ["QWEN_API_KEY"] = str(data["qwen_api_key"])
-        if data.get("qwen_base_url"):
-            os.environ["QWEN_BASE_URL"] = str(data["qwen_base_url"])
-        if data.get("qwen_model"):
-            os.environ["QWEN_MODEL"] = str(data["qwen_model"])
-        if data.get("gemini_api_key"):
-            os.environ["GEMINI_API_KEY"] = str(data["gemini_api_key"])
-        if data.get("gemini31_api_key"):
-            os.environ["GEMINI31_API_KEY"] = str(data["gemini31_api_key"])
-        if data.get("gemini36_api_key"):
-            os.environ["GEMINI36_API_KEY"] = str(data["gemini36_api_key"])
+        # selected by the user. It must win over stale variables inherited from
+        # a PowerShell window. Translation uses Google Gemini only, so a single
+        # GEMINI_API_KEY is enough; older per-model key names still feed it.
+        gemini_key = (
+            data.get("gemini_api_key")
+            or data.get("gemini36_api_key")
+            or data.get("gemini31_api_key")
+        )
+        if gemini_key:
+            os.environ["GEMINI_API_KEY"] = str(gemini_key)
+        if data.get("gemini_model"):
+            os.environ["GEMINI_MODEL"] = str(data["gemini_model"])
 
 # GitHub repository that owns the dedicated V3 releases.
 GITHUB_OWNER = "salekphotovn-ui"

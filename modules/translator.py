@@ -1,4 +1,4 @@
-"""Google Web/Gemini/Qwen subtitle translation for the V3 batch workflow."""
+"""Google Web / Gemini subtitle translation for the V3 batch workflow."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import re
 import time
 import traceback
 import os
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -23,9 +22,40 @@ TIME_RE = re.compile(
     r"(\d{2}):(\d{2}):(\d{2}),(\d{3})"
 )
 NON_WORD_RE = re.compile(r"^[\W_]+$", re.UNICODE)
-_QWEN_USAGE = {"input": 0, "output": 0, "requests": 0}
-_QWEN_USAGE_LOCK = threading.Lock()
-_QWEN_PRICING = {"input": 800, "output": 4000, "minimum": 20}
+
+# Only these three models exist in the UI. Anything else (e.g. a stale
+# TRANSLATOR_MODEL environment variable) falls back to Gemini 3.6 Flash-High.
+_VALID_MODELS = ("google-web", "gemini", "gemini-3.6-flash-high")
+_DEFAULT_LLM_MODEL = "gemini-3.6-flash-high"
+# Real Google Generative Language model id used for both Gemini options.
+# Override with GEMINI_MODEL if Google renames it.
+_GOOGLE_MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
+
+
+class GeminiConfigError(RuntimeError):
+    """A Gemini failure that retrying cannot fix: bad API key or unknown model.
+
+    ``hint`` is a short Vietnamese sentence telling the user what to change.
+    """
+
+    def __init__(self, message: str, hint: str) -> None:
+        super().__init__(message)
+        self.hint = hint
+
+
+_KEY_INVALID_MARKERS = (
+    "API_KEY_INVALID", "API key not valid", "API_KEY_SERVICE_BLOCKED",
+    "PERMISSION_DENIED", "authentication", "invalid authentication",
+)
+_MODEL_MISSING_MARKERS = (
+    "NOT_FOUND", "is not found", "was not found", "not supported",
+    "does not exist", "Unknown name",
+)
+
+
+def _normalise_model(model: str) -> str:
+    model = str(model or TRANSLATOR_MODEL).strip().lower()
+    return model if model in _VALID_MODELS else _DEFAULT_LLM_MODEL
 
 
 def _translation_signature(cues: list[dict], model: str, target: str) -> str:
@@ -54,12 +84,6 @@ def _save_translation_checkpoint(path: Path, signature: str, translated: list[st
     payload = {"signature": signature, "translated": translated}
     temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     os.replace(temporary, path)
-
-
-def _qwen_cost_vnd() -> float:
-    with _QWEN_USAGE_LOCK:
-        raw = (_QWEN_USAGE["input"] * _QWEN_PRICING["input"] + _QWEN_USAGE["output"] * _QWEN_PRICING["output"]) / 1_000_000
-        return max(raw, _QWEN_USAGE["requests"] * _QWEN_PRICING["minimum"])
 
 
 def _to_seconds(values: list[int | None]) -> float:
@@ -153,7 +177,6 @@ def _google_web_translate(text: str, target_language: str) -> str:
         "https://translate.googleapis.com/translate_a/single?client=gtx"
         f"&sl=zh-CN&tl={quote(target_language)}&dt=t&q={quote(text or '')}"
     )
-    last_error = None
     last_error = "unknown error"
     for attempt in range(6):
         try:
@@ -239,11 +262,11 @@ def _translate_google_web(cues: list[dict], target_language: str, log) -> list[d
 
 
 def _gemini_translate(items: list[dict], source: str, target: str, model: str, api_key: str) -> dict[int, str]:
-    # Google retired the Gemini 2.5 model IDs; keep old settings compatible.
-    model = {
-        "gemini-2.5-pro": "gemini-3.1-pro-preview",
-        "gemini-2.5-flash": "gemini-3-flash-preview",
-    }.get(model, model)
+    if not api_key:
+        raise GeminiConfigError(
+            "Thiếu GEMINI_API_KEY.",
+            hint="Đặt gemini_api_key trong config.local.json rồi mở lại app.",
+        )
     style_guidance = {
         "English": "Use natural idiomatic English subtitle grammar and English-speaking cultural phrasing. Do not preserve Chinese word order or translate literally. Keep it concise for video subtitles: prefer 35-42 characters per line, never more than two lines, and remove redundant words without losing meaning.",
         "Vietnamese": "Use natural Vietnamese spoken subtitle grammar and culturally appropriate Vietnamese expressions. Do not preserve Chinese word order or translate literally.",
@@ -258,7 +281,7 @@ def _gemini_translate(items: list[dict], source: str, target: str, model: str, a
         '{"translations":[{"id":0,"text":"..."}]}.\n\n'
         + json.dumps(items, ensure_ascii=False)
     )
-    fallback_model = "gemini-3-flash-preview" if "flash" in model else "gemini-3.1-pro-preview"
+    fallback_model = "gemini-3.1-pro-preview" if "flash" not in model else "gemini-3-flash-preview"
     models = list(dict.fromkeys((model, fallback_model)))
     response = None
     for model_name in models:
@@ -279,7 +302,19 @@ def _gemini_translate(items: list[dict], source: str, target: str, model: str, a
                     raise RuntimeError(f"Gemini không phản hồi sau nhiều lần thử: {exc}") from exc
                 time.sleep(2 ** attempt)
                 continue
-            if response.status_code not in (429, 500, 502, 503, 504):
+            status = response.status_code
+            body = response.text[:400]
+            if status in (400, 401, 403) and any(m in body for m in _KEY_INVALID_MARKERS):
+                raise GeminiConfigError(
+                    f"Gemini HTTP {status}: {body[:200]}",
+                    hint="GEMINI_API_KEY sai hoặc hết hạn — cập nhật gemini_api_key trong config.local.json.",
+                )
+            if status in (401, 403):
+                raise GeminiConfigError(
+                    f"Gemini HTTP {status}: {body[:200]}",
+                    hint="GEMINI_API_KEY bị Google từ chối — kiểm tra khóa trong config.local.json.",
+                )
+            if status not in (429, 500, 502, 503, 504):
                 break
             time.sleep(2 ** attempt)
         if response is not None and response.ok:
@@ -287,78 +322,17 @@ def _gemini_translate(items: list[dict], source: str, target: str, model: str, a
     if response is None or not response.ok:
         status = response.status_code if response is not None else "unknown"
         detail = response.text[:300] if response is not None else "no response"
+        if response is not None and (status == 404 or any(m in detail for m in _MODEL_MISSING_MARKERS)):
+            raise GeminiConfigError(
+                f"Gemini HTTP {status}: {detail[:200]}",
+                hint=f"Model '{models[0]}' không tồn tại — đặt GEMINI_MODEL (hoặc gemini_model trong config.local.json) sang id model Gemini hợp lệ.",
+            )
         raise RuntimeError(f"Gemini HTTP {status}: {detail}")
     candidates = response.json().get("candidates", [])
     text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text") if candidates else ""
     text = str(text or "")
     text = re.sub(r"^```json\s*|\s*```$", "", text.strip())
     return _parse_translation_response(text)
-
-
-def _qwen_translate(items: list[dict], source: str, target: str, model: str, api_key: str) -> dict[int, str]:
-    """Call an OpenAI-compatible Qwen endpoint without exposing credentials."""
-    if not api_key:
-        raise RuntimeError("Thiếu QWEN_API_KEY (đặt trong biến môi trường hoặc ô API key).")
-    base_url = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1").rstrip("/")
-    prompt = (
-        f"Translate subtitle lines from {source} to {target}. Write them as a native English subtitle translator would. "
-        "Use natural idiomatic English, correct conversational rhythm, and the appropriate register for each speaker "
-        "(child, parent, servant, noble, soldier, romantic partner, etc.). Do not translate word-for-word or preserve "
-        "Chinese sentence order. Adapt idioms and jokes so an English-speaking viewer understands the intended meaning, "
-        "while preserving names, relationships, plot facts, emotion and historical/cultural setting. Keep subtitles concise "
-        "and readable; never add explanations. Return JSON only as "
-        '{"translations":[{"id":0,"text":"..."}]} and include every ID exactly once.\n\n'
-        + json.dumps(items, ensure_ascii=False)
-    )
-    for attempt in range(3):
-        try:
-            response = requests.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": "You are a professional native English subtitle translator."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 8192,
-                    "stream": False,
-                },
-                timeout=(30, 300),
-            )
-            if response.ok:
-                if not response.text.strip():
-                    raise RuntimeError("Vilao trả response rỗng")
-                try:
-                    data = response.json()
-                except ValueError as exc:
-                    raise RuntimeError(f"Vilao trả body không phải JSON: {response.text[:200]}") from exc
-                usage = data.get("usage", {}) or {}
-                with _QWEN_USAGE_LOCK:
-                    _QWEN_USAGE["input"] += int(usage.get("prompt_tokens", 0) or 0)
-                    _QWEN_USAGE["output"] += int(usage.get("completion_tokens", 0) or 0)
-                    _QWEN_USAGE["requests"] += 1
-                choices = data.get("choices")
-                if not isinstance(choices, list) or not choices:
-                    raise RuntimeError(f"Vilao trả JSON thiếu choices: {list(data)[:8]}")
-                message = choices[0].get("message", {})
-                text = message.get("content", "") if isinstance(message, dict) else ""
-                if isinstance(text, list):
-                    text = "".join(str(part.get("text", "")) if isinstance(part, dict) else str(part) for part in text)
-                if not str(text).strip():
-                    raise RuntimeError("Vilao trả choices nhưng content rỗng")
-                return _parse_translation_response(text)
-            if response.status_code not in (429, 500, 502, 503, 504):
-                raise RuntimeError(f"Qwen HTTP {response.status_code}: {response.text[:300]}")
-            last_error = f"Qwen HTTP {response.status_code}: {response.text[:200]}"
-        except (requests.RequestException, KeyError, IndexError, ValueError, RuntimeError) as exc:
-            last_error = str(exc)
-            if attempt == 5:
-                raise RuntimeError(f"Qwen không phản hồi sau nhiều lần thử: {exc}") from exc
-        if attempt < 5:
-            time.sleep(min(20, 2 ** attempt))
-    raise RuntimeError(f"Qwen không trả về kết quả: {last_error}")
 
 
 def translate_srt_batch(
@@ -369,10 +343,9 @@ def translate_srt_batch(
     log_callback=None,
     source_language: str = "zh",
 ) -> list[str]:
-    # Google Web is the free, reliable default. Gemini remains available when
-    # explicitly selected from the UI.
-    model = str(model or TRANSLATOR_MODEL).strip().lower()
+    model = _normalise_model(model)
     target_language = str(target_language or "en").strip().lower() or "en"
+
     def log(message: str) -> None:
         if log_callback:
             log_callback(message)
@@ -380,16 +353,6 @@ def translate_srt_batch(
     root = Path(root_path)
     results = []
     source_language = str(source_language or "zh").strip().lower()
-    with _QWEN_USAGE_LOCK:
-        _QWEN_USAGE.update(input=0, output=0, requests=0)
-        if model in ("qwen3.8-max", "hybrid-qwen-gemini"):
-            _QWEN_PRICING.update(input=285, output=1045, minimum=13)
-        elif model == "gemini-3.6-flash-high":
-            _QWEN_PRICING.update(input=500, output=1500, minimum=3)
-        elif model == "gemini-3.1-flash-lite":
-            _QWEN_PRICING.update(input=500, output=1500, minimum=10)
-        else:
-            _QWEN_PRICING.update(input=800, output=4000, minimum=20)
     source_files = sorted(
         (path for path in root.rglob("*.srt") if path.stem.lower() == source_language),
         key=lambda path: str(path).casefold(),
@@ -398,8 +361,8 @@ def translate_srt_batch(
         raise FileNotFoundError("Không tìm thấy zh.srt để dịch.")
     language_names = {"en": "English", "vi": "Vietnamese", "ja": "Japanese", "ko": "Korean", "th": "Thai"}
     target_name = language_names.get(target_language, target_language)
-    main_model = "gemini-3-flash-preview" if model == "hybrid-flash-pro" else model
-    repair_model = "gemini-3.1-pro-preview" if model == "hybrid-flash-pro" else model
+    google_model = _GOOGLE_MODEL_ID
+
     for source_path in source_files:
         cues = _read_srt(source_path)
         film_folder = source_path.parent
@@ -437,13 +400,13 @@ def translate_srt_batch(
                 for old, source in zip(previous_output, cues)
             )
             incomplete_output = aligned and any(
-                re.search(r"[\u3400-\u9fff]", cue["text"])
+                re.search(r"[㐀-鿿]", cue["text"])
                 for cue in previous_output
             )
             if incomplete_output:
                 for index, old in enumerate(previous_output):
                     old_text = old["text"].strip()
-                    if old_text and not re.search(r"[\u3400-\u9fff]", old_text):
+                    if old_text and not re.search(r"[㐀-鿿]", old_text):
                         translated[index] = old_text
                 resumed_count = sum(bool(text) for text in translated)
                 if resumed_count:
@@ -461,7 +424,7 @@ def translate_srt_batch(
             )
         log(f"[Translate] Đang dịch {source_path.parent.parent.name} ({len(cues)} câu)")
         try:
-            batch_size = int(os.getenv("QWEN_BATCH_SIZE", "100"))
+            batch_size = int(os.getenv("TRANSLATE_BATCH_SIZE", "100"))
         except ValueError:
             batch_size = 100
         batch_size = max(25, min(batch_size, 300))
@@ -477,91 +440,33 @@ def translate_srt_batch(
                 {"id": index, "text": cues[index]["text"]}
                 for index in range(start, end) if not translated[index]
             ]
-            if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini"):
-                api_model = "qwen3.8-max" if model == "hybrid-qwen-gemini" else model
+            try:
+                mapping = _gemini_translate(items, "Chinese", target_name, google_model, api_key)
+            except GeminiConfigError:
+                raise
+            except RuntimeError as exc:
+                log(f"[TranslateRetry] Batch {start + 1}-{end} lỗi, thử lại: {exc}")
                 try:
-                    mapping = _qwen_translate(items, "Chinese", target_name, api_model, api_key)
-                except RuntimeError as exc:
-                    # Retry a failed large request as two smaller requests. A
-                    # transient failure near the end must not discard every
-                    # part of a long film that already completed.
-                    log(f"[TranslateRetry] Batch {start + 1}-{end} lỗi, chia đôi: {exc}")
+                    mapping = _gemini_translate(items, "Chinese", target_name, google_model, api_key)
+                except GeminiConfigError:
+                    raise
+                except RuntimeError as exc2:
+                    log(f"[TranslateSkip] Batch {start + 1}-{end} vẫn lỗi, giữ câu nguồn: {exc2}")
                     mapping = {}
-                    middle = start + max(1, (end - start) // 2)
-                    for sub_start, sub_end in ((start, middle), (middle, end)):
-                        if sub_start >= sub_end:
-                            continue
-                        sub_items = [item for item in items if sub_start <= item["id"] < sub_end]
-                        try:
-                            mapping.update(_qwen_translate(
-                                sub_items, "Chinese", target_name, api_model, api_key
-                            ))
-                        except RuntimeError as sub_exc:
-                            if model == "hybrid-qwen-gemini":
-                                gemini_key = os.getenv(
-                                    "GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", "")
-                                )
-                                try:
-                                    mapping.update(_qwen_translate(
-                                        sub_items, "Chinese", target_name,
-                                        "gemini-3.6-flash-high", gemini_key,
-                                    ))
-                                    log(
-                                        f"[TranslateFallback] {sub_start + 1}-{sub_end} "
-                                        "đã chuyển sang Gemini 3.6"
-                                    )
-                                    continue
-                                except RuntimeError as fallback_exc:
-                                    sub_exc = fallback_exc
-                            log(
-                                f"[TranslateSkip] {sub_start + 1}-{sub_end} vẫn lỗi; "
-                                f"giữ câu nguồn và tiếp tục: {sub_exc}"
-                            )
-            else:
-                mapping = _gemini_translate(items, "Chinese", target_name, main_model, api_key)
-            # Retry a malformed/empty batch once as a batch. Never fan out to
-            # one request per cue: that can multiply cost by hundreds.
-            if not mapping:
-                log(f"[Translate] Batch {start + 1}-{end} trả kết quả rỗng, retry nguyên batch")
-                retry_batch = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini") else _gemini_translate
-                retry_model = "qwen3.8-max" if model == "hybrid-qwen-gemini" else (model if retry_batch is _qwen_translate else main_model)
-                try:
-                    mapping = retry_batch(items, "Chinese", target_name, retry_model, api_key)
-                except RuntimeError as exc:
-                    log(f"[TranslateSkip] Batch {start + 1}-{end} vẫn rỗng, tiếp tục: {exc}")
-                    mapping = {}
-            if model == "hybrid-qwen-gemini":
-                flagged = [item for item in items if re.search(r"[\u4e00-\u9fff]", mapping.get(item["id"], "")) or len(mapping.get(item["id"], "")) > 120]
-                if flagged:
-                    gemini_key = os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", ""))
-                    try:
-                        polished = _qwen_translate(flagged[:10], "Chinese", target_name, "gemini-3.6-flash-high", gemini_key)
-                        mapping.update(polished)
-                        log(f"[TranslateHybrid] Đã sửa chọn lọc {len(polished)} cue")
-                    except RuntimeError as exc:
-                        log(f"[TranslateHybrid] Gemini sửa chọn lọc tạm lỗi, bỏ qua: {exc}")
+            # Repair a few missing / source-unchanged lines individually. Larger
+            # failures are left as source text to avoid runaway API cost.
             missing = [
                 index for index in range(start, end)
                 if not mapping.get(index) or mapping[index].strip() == cues[index]["text"].strip()
             ]
-            # Hybrid mode uses Pro only for incomplete/source-unchanged lines.
-            # Only repair a small number of missing cues individually. Larger
-            # failures are left as source text to avoid runaway API cost.
             for index in missing[:3]:
-                retry_fn = _qwen_translate if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini") else _gemini_translate
-                retry_api_key = (
-                    os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", ""))
-                    if model == "hybrid-qwen-gemini" else api_key
-                )
-                retry_model_name = "gemini-3.6-flash-high" if model == "hybrid-qwen-gemini" else (model if retry_fn is _qwen_translate else repair_model)
                 try:
-                    retry = retry_fn(
+                    retry = _gemini_translate(
                         [{"id": index, "text": cues[index]["text"]}],
-                        "Chinese",
-                        target_name,
-                        retry_model_name,
-                        retry_api_key,
+                        "Chinese", target_name, google_model, api_key,
                     )
+                except GeminiConfigError:
+                    raise
                 except RuntimeError as exc:
                     log(f"[TranslateSkip] Cue {index + 1} sửa lại thất bại, tiếp tục: {exc}")
                     retry = {}
@@ -569,44 +474,41 @@ def translate_srt_batch(
                     mapping[index] = retry[index]
             return start, end, mapping
 
-        # Configurable concurrency: 5 is faster for Vilao while remaining
-        # below the level that previously caused malformed transient responses.
         try:
-            configured_workers = int(os.getenv("QWEN_WORKERS", "10"))
+            configured_workers = int(os.getenv("TRANSLATE_WORKERS", "8"))
         except ValueError:
-            configured_workers = 10
-        # Vilao's Qwen upstream starts returning concurrent 503 responses at
-        # ten long subtitle requests. Six keeps useful parallelism without a
-        # retry storm that is slower and risks repeating paid work.
-        if model == "hybrid-qwen-gemini":
-            configured_workers = min(configured_workers, 6)
+            configured_workers = 8
         worker_count = min(max(1, configured_workers), max(1, len(parts)))
         log(f"[Translate] Chia {len(cues)} câu thành {len(parts)} phần xấp xỉ {batch_size} cue, chạy tối đa {worker_count} luồng")
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(translate_part, start, end) for start, end in parts]
             completed = 0
-            for future in as_completed(futures):
-                start, end, mapping = future.result()
-                for index, text in mapping.items():
-                    if start <= index < end:
-                        translated[index] = text
-                # Persist after every paid batch. os.replace keeps the previous
-                # valid checkpoint intact if the app or machine stops while
-                # this small file is being written.
-                _save_translation_checkpoint(
-                    checkpoint_path, checkpoint_signature, translated
-                )
-                completed += 1
-                saved_count = sum(bool(text) for text in translated)
-                percent = round(saved_count * 100 / max(1, len(cues)))
-                log(f"[TranslateProgress] {saved_count}/{len(cues)} câu ({completed}/{len(parts)} phần) percent={percent}")
+            try:
+                for future in as_completed(futures):
+                    start, end, mapping = future.result()
+                    for index, text in mapping.items():
+                        if start <= index < end:
+                            translated[index] = text
+                    # Persist after every batch. os.replace keeps the previous
+                    # valid checkpoint intact if the machine stops mid-write.
+                    _save_translation_checkpoint(
+                        checkpoint_path, checkpoint_signature, translated
+                    )
+                    completed += 1
+                    saved_count = sum(bool(text) for text in translated)
+                    percent = round(saved_count * 100 / max(1, len(cues)))
+                    log(f"[TranslateProgress] {saved_count}/{len(cues)} câu ({completed}/{len(parts)} phần) percent={percent}")
+            except GeminiConfigError as exc:
+                for future in futures:
+                    future.cancel()
+                raise RuntimeError(f"Lỗi dịch: {exc.hint}") from exc
 
         missing_after_run = sum(not text for text in translated)
         for index, text in enumerate(translated):
             if not text:
                 translated[index] = cues[index]["text"]
         output_cues = [{**cue, "text": translated[index]} for index, cue in enumerate(cues)]
-        leftover_cjk = sum(bool(re.search(r"[\u4e00-\u9fff]", cue["text"])) for cue in output_cues)
+        leftover_cjk = sum(bool(re.search(r"[一-鿿]", cue["text"])) for cue in output_cues)
         suspicious_long = sum(len(cue["text"]) > 120 for cue in output_cues)
         if leftover_cjk or suspicious_long:
             log(f"[TranslateQA] {film_name}: còn {leftover_cjk} cue có chữ Trung, {suspicious_long} cue quá dài (không gọi thêm request)")
@@ -624,19 +526,6 @@ def translate_srt_batch(
         results.append(str(output_path))
         log(f"[Translate] FILM_DONE {film_name} output={output_path.name}")
         log(f"[Translate] Đã lưu {output_path.name}")
-        if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini"):
-            with _QWEN_USAGE_LOCK:
-                usage_snapshot = dict(_QWEN_USAGE)
-            log(
-                f"[TranslateCost] {model} {film_name}: input={usage_snapshot['input']:,} token, "
-                f"output={usage_snapshot['output']:,} token, requests={usage_snapshot['requests']}, "
-                f"tam tinh={_qwen_cost_vnd():,.0f} VND"
-            )
-    if model.startswith("qwen") or model in ("gemini-3.6-flash-high", "gemini-3.1-flash-lite", "hybrid-qwen-gemini"):
-        with _QWEN_USAGE_LOCK:
-            total = _qwen_cost_vnd()
-            reqs = _QWEN_USAGE["requests"]
-        log(f"[TranslateCost] {model} TỔNG PHIÊN: {total:,.0f} VND ({reqs} requests; tối thiểu {_QWEN_PRICING['minimum']} VND/request)")
     return results
 
 

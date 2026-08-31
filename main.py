@@ -74,14 +74,8 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
         )
     if steps.get("translate"):
         log("[AutoStage] Đang dịch Gemini 3.6 Flash-High")
-        automatic_model = os.getenv("TRANSLATOR_MODEL", "gemini-3.6-flash-high")
-        automatic_key = (
-            os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", ""))
-            if automatic_model == "gemini-3.6-flash-high"
-            else os.getenv("QWEN_API_KEY", "")
-        )
         translate_srt_batch(
-            folder, "en", automatic_model, automatic_key,
+            folder, "en", "gemini-3.6-flash-high", os.getenv("GEMINI_API_KEY", ""),
             log_callback=log_callback,
         )
     if steps.get("mux"):
@@ -211,19 +205,14 @@ class TranslateDialog(QDialog):
         layout.addWidget(self.target)
         layout.addWidget(QLabel("Model dịch:"))
         self.google = QRadioButton("Google Translate Web (miễn phí)"); layout.addWidget(self.google)
-        self.gemini = QRadioButton("Gemini (cần API key)"); self.gemini.setEnabled(False); layout.addWidget(self.gemini)
-        self.qwen38 = QRadioButton("Qwen3.8-Max (cần QWEN_API_KEY)"); layout.addWidget(self.qwen38)
+        self.gemini = QRadioButton("Gemini (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini)
         self.gemini36 = QRadioButton("Gemini 3.6 Flash-High (cần GEMINI_API_KEY)"); self.gemini36.setChecked(True); layout.addWidget(self.gemini36)
-        self.gemini31 = QRadioButton("Gemini 3.1 Flash-Lite (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini31)
-        self.hybrid = QRadioButton("Hybrid: Qwen3.8-Max + Gemini sửa chọn lọc"); layout.addWidget(self.hybrid)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
         model = ("gemini-3.6-flash-high" if self.gemini36.isChecked() else
-                 ("gemini-3.1-flash-lite" if self.gemini31.isChecked() else
-                 ("hybrid-qwen-gemini" if self.hybrid.isChecked() else
-                  ("qwen3.8-max" if self.qwen38.isChecked() else "google-web"))))
+                 ("gemini" if self.gemini.isChecked() else "google-web"))
         return self.source.currentText(), self.target.currentData(), model
 
 
@@ -1204,10 +1193,6 @@ class MainWindow(QMainWindow):
 
     def write_log(self, message):
         text = str(message)
-        if "[TranslateCost]" in text:
-            self.log_view.append("[Chi phí] " + text.split("[TranslateCost]", 1)[-1].strip())
-            self.log_view.ensureCursorVisible()
-            return
         match = re.search(r"(?:\[DownloadProgress\]\s+PERCENT.*?\s+)?percent=([0-9]+(?:\.[0-9]+)?)", text, re.IGNORECASE)
         if match:
             percent = max(0, min(100, round(float(match.group(1)))))
@@ -1655,9 +1640,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         source, target, model = dialog.values()
-        api_key = (os.getenv("GEMINI36_API_KEY", os.getenv("GEMINI_API_KEY", "")) if model == "gemini-3.6-flash-high" else
-                   (os.getenv("GEMINI31_API_KEY", os.getenv("GEMINI_API_KEY", "")) if model == "gemini-3.1-flash-lite" else
-                   (os.getenv("QWEN_API_KEY", "") if model.startswith("qwen") or model == "hybrid-qwen-gemini" else "")))
+        api_key = "" if model == "google-web" else os.getenv("GEMINI_API_KEY", "")
         self.start_task(translate_srt_batch, str(self.root), target, model, api_key, source_language=source)
 
     def mux(self):
