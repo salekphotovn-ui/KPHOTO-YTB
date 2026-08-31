@@ -7,6 +7,8 @@ build/
 dist/
 *.spec
 KPHOTO-YTB_*.zip
+KPHOTO-YTB_Portable*/
+KPHOTO-YTB_Setup*.exe
 download_test_tmp/
 *.pyc
 *.log
