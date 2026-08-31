@@ -68,11 +68,33 @@ def create_desktop_shortcut(app_exe: Path) -> None:
     )
 
 
+def place_local_config(install_dir: Path) -> None:
+    """Copy a config.local.json shipped beside the installer into the app dir."""
+    import shutil
+
+    destination = install_dir / "config.local.json"
+    sources = [
+        Path(sys.executable).resolve().parent / "config.local.json",
+        Path(getattr(sys, "_MEIPASS", "")) / "config.local.json",
+        Path.cwd() / "config.local.json",
+    ]
+    for source in sources:
+        try:
+            if not source.is_file() or source.resolve() == destination.resolve():
+                continue
+            shutil.copy2(source, destination)
+            print("Đã sao chép config.local.json vào thư mục cài đặt.", flush=True)
+            return
+        except OSError:
+            continue
+
+
 def main() -> int:
     install_dir = Path(sys.executable).resolve().parent
     app_exe = install_dir / "KPHOTO-YTB.exe"
     required = (app_exe, install_dir / "_internal", install_dir / "bin", install_dir / "models")
     if all(path.exists() for path in required):
+        place_local_config(install_dir)
         create_desktop_shortcut(app_exe)
         subprocess.Popen([str(app_exe)], cwd=str(install_dir))
         return 0
@@ -92,6 +114,7 @@ def main() -> int:
 
     if not app_exe.exists():
         raise RuntimeError("Không tìm thấy KPHOTO-YTB.exe sau khi cài đặt")
+    place_local_config(install_dir)
     create_desktop_shortcut(app_exe)
     print("Cài đặt hoàn tất. Đang mở KPHOTO-YTB...", flush=True)
     subprocess.Popen([str(app_exe)], cwd=str(install_dir))
