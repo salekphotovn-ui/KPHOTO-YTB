@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 APP_NAME = "KPHOTO-YTB"
-VERSION = "0.3.8"
+VERSION = "0.3.9"
 # Release tag that hosts the large, rarely-changing bootstrap payloads
 # (bin / models / runtime). The versioned executable update is published
 # separately as KPHOTO-YTB_update.zip on the release matching VERSION.
@@ -61,6 +61,15 @@ def load_local_provider_config() -> None:
         # gemini-3.6-flash-high in translator.py when unset.
         if data.get("gemini_model"):
             os.environ["GEMINI_MODEL"] = str(data["gemini_model"])
+        # Ordered model pool (same key/base_url, different model names). A batch
+        # tries them in order and rolls to the next on a slow / 429 answer, so
+        # one congested model never stalls the whole translation.
+        models = data.get("translate_models")
+        if isinstance(models, list):
+            names = [str(item).strip() for item in models if str(item).strip()]
+            if names:
+                os.environ["GEMINI_MODELS"] = ",".join(names)
+                os.environ["GEMINI_MODEL"] = names[0]
 
 # GitHub repository that owns the dedicated V3 releases.
 GITHUB_OWNER = "salekphotovn-ui"

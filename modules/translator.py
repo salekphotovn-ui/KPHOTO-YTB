@@ -47,35 +47,38 @@ class GeminiConfigError(RuntimeError):
         self.hint = hint
 
 
-# When the proxy answers HTTP 429 (its upstream Gemini is rate limited) every
-# worker thread parks until this timestamp, so a burst of retries does not keep
-# hammering an endpoint that already told us to slow down.
-_RATE_LIMIT_LOCK = threading.Lock()
-_rate_limit_until = 0.0
-
-
-def _rate_limit_pause(seconds: float) -> None:
-    global _rate_limit_until
-    seconds = max(1.0, min(120.0, seconds))
-    with _RATE_LIMIT_LOCK:
-        _rate_limit_until = max(_rate_limit_until, time.monotonic() + seconds)
-
-
-def _rate_limit_wait() -> None:
-    while True:
-        with _RATE_LIMIT_LOCK:
-            remaining = _rate_limit_until - time.monotonic()
-        if remaining <= 0:
-            return
-        time.sleep(min(remaining, 5.0))
-
-
 def _proxy_base_url() -> str:
     return os.getenv("GEMINI_BASE_URL", "").rstrip("/")
 
 
 def _proxy_model_name() -> str:
     return os.getenv("GEMINI_MODEL", "gemini-3.6-flash-high").strip() or "gemini-3.6-flash-high"
+
+
+# Ordered proxy model names, most-preferred first (config.local.json
+# "translate_models" -> GEMINI_MODELS). A batch tries them in order; a model
+# that is slow / rate-limited / empty is parked for a short cooldown so the
+# next batch rolls straight to the following model instead of waiting.
+_MODEL_COOLDOWN_LOCK = threading.Lock()
+_model_cooldown: dict[str, float] = {}
+
+
+def _proxy_models() -> list[str]:
+    raw = os.getenv("GEMINI_MODELS", "").strip()
+    names = [part.strip() for part in raw.split(",") if part.strip()] if raw else []
+    return names or [_proxy_model_name()]
+
+
+def _model_ready(name: str) -> bool:
+    with _MODEL_COOLDOWN_LOCK:
+        return _model_cooldown.get(name, 0.0) <= time.monotonic()
+
+
+def _cool_model(name: str, seconds: float) -> None:
+    with _MODEL_COOLDOWN_LOCK:
+        _model_cooldown[name] = max(
+            _model_cooldown.get(name, 0.0), time.monotonic() + max(1.0, seconds)
+        )
 
 
 def _translation_signature(cues: list[dict], model: str, target: str) -> str:
@@ -176,8 +179,26 @@ def _write_srt(path: Path, cues: list[dict]) -> None:
     path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
 
 
-def _translate_batch(items: list[dict], source: str, target: str, api_key: str) -> dict[int, str]:
-    """One /chat/completions call to the OpenAI-compatible Gemini endpoint."""
+def _post_chat(base_url: str, api_key: str, model_name: str, target: str, prompt: str):
+    return requests.post(
+        f"{base_url}/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": f"You are a professional native {target} subtitle translator."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 8192,
+            "stream": False,
+        },
+        timeout=(20, 240),
+    )
+
+
+def _translate_batch(items: list[dict], source: str, target: str, api_key: str, log=None) -> dict[int, str]:
+    """Translate one batch, rolling through the model pool on slow / 429 answers."""
     base_url = _proxy_base_url()
     if not base_url:
         raise GeminiConfigError(
@@ -198,43 +219,49 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str) 
         'JSON only as {"translations":[{"id":0,"text":"..."}]} and include every ID once.\n\n'
         + json.dumps(items, ensure_ascii=False)
     )
-    model_name = _proxy_model_name()
+
+    def emit(message: str) -> None:
+        if log:
+            log(message)
+
+    models = _proxy_models()
+    primary = models[0]
+    dead: set[str] = set()
     last_error = "unknown error"
-    for attempt in range(5):
-        _rate_limit_wait()
-        try:
-            response = requests.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": f"You are a professional native {target} subtitle translator."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 8192,
-                    "stream": False,
-                },
-                timeout=(30, 300),
-            )
-        except requests.RequestException as exc:
-            last_error = str(exc)
-            time.sleep(min(20, 2 ** attempt))
-            continue
-        if response.ok:
-            data = response.json() if response.text.strip() else {}
-            choices = data.get("choices") or []
-            message = choices[0].get("message", {}) if choices else {}
-            text = message.get("content", "") if isinstance(message, dict) else ""
-            if isinstance(text, list):
-                text = "".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in text)
-            if str(text).strip():
-                return _parse_translation_response(text)
-            last_error = "endpoint trả nội dung rỗng"
-        else:
+
+    # Pass 0 respects each model's cooldown; pass 1 ignores it (everything is
+    # cooling, so just push through in priority order rather than stall).
+    for pass_no in range(2):
+        for name in models:
+            if name in dead:
+                continue
+            if pass_no == 0 and not _model_ready(name):
+                continue
+            try:
+                response = _post_chat(base_url, api_key, name, target, prompt)
+            except requests.RequestException as exc:
+                last_error = f"{name}: {exc}"
+                _cool_model(name, 20)
+                emit(f"[TranslateModel] {name} lỗi mạng, đổi endpoint")
+                continue
+            if response.ok:
+                data = response.json() if response.text.strip() else {}
+                choices = data.get("choices") or []
+                message = choices[0].get("message", {}) if choices else {}
+                text = message.get("content", "") if isinstance(message, dict) else ""
+                if isinstance(text, list):
+                    text = "".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in text)
+                parsed = _parse_translation_response(text) if str(text).strip() else {}
+                if parsed:
+                    if name != primary:
+                        emit(f"[TranslateModel] dùng {name} ({len(parsed)} câu)")
+                    return parsed
+                last_error = f"{name}: nội dung rỗng / không đọc được JSON"
+                _cool_model(name, 10)
+                continue
             body = response.text[:400]
-            if response.status_code in (400, 401, 403) and any(m in body.lower() for m in (x.lower() for x in _KEY_INVALID_MARKERS)):
+            low = body.lower()
+            if response.status_code in (400, 401, 403) and any(m.lower() in low for m in _KEY_INVALID_MARKERS):
                 raise GeminiConfigError(
                     f"HTTP {response.status_code}: {body[:200]}",
                     hint="gemini_api_key sai hoặc hết hạn — cập nhật trong config.local.json.",
@@ -245,24 +272,28 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str) 
                     hint="API key bị endpoint từ chối — kiểm tra gemini_api_key / gemini_base_url trong config.local.json.",
                 )
             if response.status_code == 404:
-                raise GeminiConfigError(
-                    f"HTTP 404: {body[:200]}",
-                    hint=f"Endpoint không có model '{model_name}' — đặt gemini_model / gemini_base_url đúng trong config.local.json.",
-                )
-            last_error = f"HTTP {response.status_code}: {body[:200]}"
-            if response.status_code not in (429, 500, 502, 503, 504):
-                raise RuntimeError(last_error)
-            if response.status_code == 429:
-                # Honour Retry-After when the proxy sends it, otherwise back off
-                # 15s, 30s, 45s... and make every other thread wait it out too.
+                dead.add(name)
+                last_error = f"{name}: HTTP 404 {body[:160]}"
+                emit(f"[TranslateModel] {name} không có trên key này, bỏ qua")
+                continue
+            last_error = f"{name}: HTTP {response.status_code}: {body[:160]}"
+            if response.status_code in (429, 500, 502, 503, 504):
                 try:
                     cooldown = float(response.headers.get("Retry-After", ""))
                 except (TypeError, ValueError):
-                    cooldown = 15.0 * (attempt + 1)
-                _rate_limit_pause(cooldown)
+                    cooldown = 20.0
+                _cool_model(name, min(90.0, max(10.0, cooldown)))
+                emit(f"[TranslateModel] {name} {response.status_code} chậm/nghẽn, đổi endpoint")
                 continue
-        time.sleep(min(20, 2 ** attempt))
-    raise RuntimeError(f"Endpoint dịch không phản hồi hợp lệ: {last_error}")
+            raise RuntimeError(last_error)
+        if models and all(name in dead for name in models):
+            raise GeminiConfigError(
+                f"Không model nào chạy được: {last_error}",
+                hint="Kiểm tra tên model trong translate_models của config.local.json (có/không tiền tố provider).",
+            )
+        if pass_no == 0:
+            time.sleep(8)
+    raise RuntimeError(f"Tất cả model dịch đều bận: {last_error}")
 
 
 def translate_srt_batch(
@@ -364,35 +395,37 @@ def translate_srt_batch(
                 {"id": index, "text": cues[index]["text"]}
                 for index in range(start, end) if not translated[index]
             ]
+            # _translate_batch already rolls through the whole model pool twice,
+            # so an empty result here means every model is congested - retrying
+            # the same call would only add load. Keep the source for now; the
+            # checkpoint lets the next Dịch press fill it in.
             try:
-                mapping = _translate_batch(items, source_name, target_name, api_key)
+                mapping = _translate_batch(items, source_name, target_name, api_key, log=log)
             except GeminiConfigError:
                 raise
             except RuntimeError as exc:
-                log(f"[TranslateRetry] Batch {start + 1}-{end} lỗi, thử lại: {exc}")
-                try:
-                    mapping = _translate_batch(items, source_name, target_name, api_key)
-                except GeminiConfigError:
-                    raise
-                except RuntimeError as exc2:
-                    log(f"[TranslateSkip] Batch {start + 1}-{end} vẫn lỗi, giữ câu nguồn: {exc2}")
-                    mapping = {}
+                log(f"[TranslateSkip] Batch {start + 1}-{end} chưa dịch được: {exc}")
+                mapping = {}
             missing = [
                 index for index in range(start, end)
                 if not mapping.get(index) or mapping[index].strip() == cues[index]["text"].strip()
             ]
-            for index in missing[:3]:
-                try:
-                    retry = _translate_batch(
-                        [{"id": index, "text": cues[index]["text"]}], source_name, target_name, api_key
-                    )
-                except GeminiConfigError:
-                    raise
-                except RuntimeError as exc:
-                    log(f"[TranslateSkip] Cue {index + 1} sửa lại thất bại, tiếp tục: {exc}")
-                    retry = {}
-                if retry.get(index):
-                    mapping[index] = retry[index]
+            # Single-cue fixups only when the batch mostly worked (a real gap),
+            # not when the whole batch failed (endpoint down).
+            if mapping and len(missing) <= max(5, (end - start) // 4):
+                for index in missing[:5]:
+                    try:
+                        retry = _translate_batch(
+                            [{"id": index, "text": cues[index]["text"]}],
+                            source_name, target_name, api_key, log=log,
+                        )
+                    except GeminiConfigError:
+                        raise
+                    except RuntimeError as exc:
+                        log(f"[TranslateSkip] Cue {index + 1} sửa lại thất bại, tiếp tục: {exc}")
+                        retry = {}
+                    if retry.get(index):
+                        mapping[index] = retry[index]
             return start, end, mapping
 
         try:
