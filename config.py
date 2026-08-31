@@ -13,7 +13,7 @@ VERSION = "0.3.4"
 # Release tag that hosts the large, rarely-changing bootstrap payloads
 # (bin / models / runtime). The versioned executable update is published
 # separately as KPHOTO-YTB_update.zip on the release matching VERSION.
-RUNTIME_RELEASE_TAG = "v0.3.2"
+RUNTIME_RELEASE_TAG = "v0.3.4"
 
 
 def load_local_provider_config() -> None:

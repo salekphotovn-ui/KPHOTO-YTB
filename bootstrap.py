@@ -9,20 +9,22 @@ from pathlib import Path
 
 
 # The executable ships on the release matching the app VERSION; the heavy
-# bin/models/runtime payloads rarely change and stay on RUNTIME_TAG so a
-# bug-fix release only needs a fresh KPHOTO-YTB_update.zip re-uploaded.
+# bin/models/runtime payloads change rarely and live on RUNTIME_TAG.
 APP_TAG = "v0.3.4"
-RUNTIME_TAG = "v0.3.2"
+RUNTIME_TAG = "v0.3.4"
 _BASE = "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download"
 
+# Required packages, always fetched.
 PACKAGES = (
     ("Ứng dụng", f"{_BASE}/{APP_TAG}/KPHOTO-YTB_update.zip"),
     ("FFmpeg và BBDown", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_bin.zip"),
     ("Models", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_models.zip"),
     ("Runtime cơ bản", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_runtime_core.zip"),
-    ("Runtime CUDA 1/2", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_runtime_cuda_a.zip"),
-    ("Runtime CUDA 2/2", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_runtime_cuda_b.zip"),
 )
+# Torch is split into KPHOTO-YTB_runtime_cuda_<a..>.zip; the packager decides how
+# many parts fit under GitHub's 2 GB asset cap, so fetch a..f and stop at the
+# first one that is missing.
+CUDA_PART_LETTERS = "abcdef"
 
 
 def download(url: str, target: Path, label: str) -> None:
@@ -37,6 +39,17 @@ def download(url: str, target: Path, label: str) -> None:
     result = subprocess.run(command, check=False)
     if result.returncode != 0 or not target.exists() or target.stat().st_size == 0:
         raise RuntimeError(f"Không tải được {label} (curl={result.returncode})")
+
+
+def try_download(url: str, target: Path, label: str) -> bool:
+    """Download an optional asset; return False (no raise) if it is absent."""
+    try:
+        download(url, target, label)
+        return True
+    except RuntimeError:
+        if target.exists():
+            target.unlink()
+        return False
 
 
 def safe_extract(archive: Path, destination: Path) -> None:
@@ -103,10 +116,27 @@ def main() -> int:
     print("Không đóng cửa sổ này trong lúc tải và giải nén.", flush=True)
     with tempfile.TemporaryDirectory(prefix="kphoto_setup_") as temp:
         temp_dir = Path(temp)
-        for index, (label, url) in enumerate(PACKAGES, 1):
+        index = 0
+        for label, url in PACKAGES:
+            index += 1
             archive = temp_dir / f"package_{index}.zip"
             print(f"\nĐang tải {label}...", flush=True)
             download(url, archive, label)
+            if not zipfile.is_zipfile(archive):
+                raise RuntimeError(f"Link {label} không trả về file ZIP trực tiếp")
+            print(f"Đang giải nén {label}...", flush=True)
+            safe_extract(archive, install_dir)
+
+        for order, letter in enumerate(CUDA_PART_LETTERS, 1):
+            url = f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_runtime_cuda_{letter}.zip"
+            index += 1
+            archive = temp_dir / f"package_{index}.zip"
+            label = f"Runtime CUDA phần {order}"
+            print(f"\nĐang tải {label}...", flush=True)
+            if not try_download(url, archive, label):
+                if order == 1:
+                    raise RuntimeError("Thiếu gói Runtime CUDA (cuda_a).")
+                break
             if not zipfile.is_zipfile(archive):
                 raise RuntimeError(f"Link {label} không trả về file ZIP trực tiếp")
             print(f"Đang giải nén {label}...", flush=True)
