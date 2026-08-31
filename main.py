@@ -489,6 +489,7 @@ class MainWindow(QMainWindow):
         self.auto_plan = None
         self.auto_phase = 0
         self._auto_active_phase = None
+        self._auto_download_only = False
         self.auto_button = None
         self.overlay_configs = {}
         self._last_download_percent = None
@@ -1358,6 +1359,7 @@ class MainWindow(QMainWindow):
             export_folder: "Xuất video", translate_srt_batch: "Dịch phụ đề",
             create_srt_batch: "Tạo SRT", separate_folder: "Tách vocal",
             mux_folder: "Ghép vocal", run_download_and_auto_pipeline: "Tải video",
+            download_multiple: "Tải video",
         }
         self._active_task_label = task_labels.get(task, getattr(task, "__name__", "Quy trình"))
         self.log_view.clear()
@@ -1468,7 +1470,15 @@ class MainWindow(QMainWindow):
         if self._auto_active_phase is not None:
             finished_phase = self._auto_active_phase
             self._auto_active_phase = None
-            if finished_phase == 0:
+            if self._auto_download_only:
+                self._auto_download_only = False
+                self.auto_phase = finished_phase
+                self._set_auto_button(
+                    "Chạy tự động · tiếp tục xuất" if finished_phase == 2
+                    else "Chạy tự động · tiếp tục tạo SRT"
+                )
+                self.status.setText("Đã tải xong link mới; vẽ khung OCR rồi bấm tiếp.")
+            elif finished_phase == 0:
                 self.auto_phase = 1
                 self.status.setText("Đã dừng trước tạo SRT; hãy thêm khung OCR cho từng video.")
                 self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
@@ -1495,6 +1505,7 @@ class MainWindow(QMainWindow):
         self._write_bug_report(error)
         if self._auto_active_phase is not None:
             self._auto_active_phase = None
+            self._auto_download_only = False
             self._set_auto_button("Chạy tự động · thử lại bước hiện tại")
         self._release_completed_task()
         QMessageBox.critical(self, "Lỗi pipeline", error)
@@ -1566,6 +1577,17 @@ class MainWindow(QMainWindow):
         phase = self.auto_phase
         self._auto_active_phase = phase
         self._set_auto_button("Đang chạy tự động..." )
+        # Download links queued after the pipeline already passed the download
+        # phase: fetch just those files and stay on the current phase. Adding
+        # more parts must not be blocked by the OCR-region gate for the SRT phase.
+        if phase != 0 and self.pending_download_links and self.auto_plan.get("download"):
+            urls, dfn = self.pending_download_links, self.pending_download_dfn
+            self.pending_download_links = []
+            self._auto_download_only = True
+            self._set_auto_button("Đang tải link mới...")
+            self.start_task(download_multiple, urls, dfn_priority=dfn,
+                            output_dir=str(self.root))
+            return
         if phase == 0:
             steps = {
                 "download": bool(self.auto_plan.get("download")),
