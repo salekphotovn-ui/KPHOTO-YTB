@@ -492,31 +492,34 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1500, self._check_for_update)
 
     def _check_for_update(self):
-        """Check the latest release and offer an in-place executable update."""
+        """Check the latest release and silently apply an in-place update."""
         release = latest_release()
         if not release:
             return
         tag = str(release.get("tag_name", "")).lstrip("v")
-        if tag and tag != VERSION:
+        if not tag or tag == VERSION:
+            return
+        self.write_log(f"[Update] Có bản mới {tag}: {release.get('html_url', '')}")
+        assets = release.get("assets") or []
+        asset = next((item for item in assets if item.get("name") == "KPHOTO-YTB_update.zip"), None)
+        if not asset:
+            self.write_log("[Update] Release chưa có KPHOTO-YTB_update.zip")
             self.version_label.setText(f"v{VERSION} → có bản mới v{tag}")
-            self.status.setText(f"Có bản cập nhật KPHOTO-YTB {tag}")
-            self.write_log(f"[Update] Có bản mới {tag}: {release.get('html_url', '')}")
-            assets = release.get("assets") or []
-            asset = next((item for item in assets if item.get("name") == "KPHOTO-YTB_update.zip"), None)
-            if not asset:
-                self.write_log("[Update] Release chưa có KPHOTO-YTB_update.zip")
-                return
-            answer = QMessageBox.question(
-                self, "Cập nhật KPHOTO-YTB",
-                f"Có phiên bản {tag}. Tải và cài đặt ngay?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if answer == QMessageBox.StandardButton.Yes:
-                self.status.setText("Đang tải bản cập nhật...")
-                if download_and_install(asset.get("browser_download_url", "")):
-                    QApplication.quit()
-                else:
-                    QMessageBox.warning(self, "Cập nhật lỗi", "Không thể tải hoặc cài bản cập nhật.")
+            return
+        if not getattr(sys, "frozen", False):
+            self.write_log("[Update] Bản chạy từ source; bỏ qua tự cập nhật.")
+            self.version_label.setText(f"v{VERSION} → có bản mới v{tag} (chạy source)")
+            return
+        # Automatic: no prompt. Fetch the new exe, schedule the swap, relaunch.
+        self.version_label.setText(f"v{VERSION} → đang cập nhật v{tag}")
+        self.status.setText(f"Đang tải bản cập nhật {tag}...")
+        self.write_log(f"[Update] Đang tải và cài {tag}; ứng dụng sẽ tự khởi động lại.")
+        if download_and_install(asset.get("browser_download_url", "")):
+            self.status.setText(f"Đã tải {tag}. Đang khởi động lại...")
+            QTimer.singleShot(500, QApplication.quit)
+        else:
+            self.write_log("[Update] Không tải/cài được bản cập nhật.")
+            self.version_label.setText(f"v{VERSION} → có bản mới v{tag} (cập nhật lỗi)")
 
     def _build_ui_v3(self):
         self.setMinimumSize(1100, 720)

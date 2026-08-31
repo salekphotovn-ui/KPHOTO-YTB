@@ -9,7 +9,11 @@ from pathlib import Path
 
 
 APP_NAME = "KPHOTO-YTB"
-VERSION = "0.3.2"
+VERSION = "0.3.3"
+# Release tag that hosts the large, rarely-changing bootstrap payloads
+# (bin / models / runtime). The versioned executable update is published
+# separately as KPHOTO-YTB_update.zip on the release matching VERSION.
+RUNTIME_RELEASE_TAG = "v0.3.2"
 
 
 def load_local_provider_config() -> None:

@@ -8,13 +8,20 @@ import zipfile
 from pathlib import Path
 
 
+# The executable ships on the release matching the app VERSION; the heavy
+# bin/models/runtime payloads rarely change and stay on RUNTIME_TAG so a
+# bug-fix release only needs a fresh KPHOTO-YTB_update.zip re-uploaded.
+APP_TAG = "v0.3.3"
+RUNTIME_TAG = "v0.3.2"
+_BASE = "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download"
+
 PACKAGES = (
-    ("Ứng dụng", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_update.zip"),
-    ("FFmpeg và BBDown", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_bin.zip"),
-    ("Models", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_models.zip"),
-    ("Runtime cơ bản", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_runtime_core.zip"),
-    ("Runtime CUDA 1/2", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_runtime_cuda_a.zip"),
-    ("Runtime CUDA 2/2", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_runtime_cuda_b.zip"),
+    ("Ứng dụng", f"{_BASE}/{APP_TAG}/KPHOTO-YTB_update.zip"),
+    ("FFmpeg và BBDown", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_bin.zip"),
+    ("Models", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_models.zip"),
+    ("Runtime cơ bản", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_runtime_core.zip"),
+    ("Runtime CUDA 1/2", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_runtime_cuda_a.zip"),
+    ("Runtime CUDA 2/2", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_runtime_cuda_b.zip"),
 )
 
 
