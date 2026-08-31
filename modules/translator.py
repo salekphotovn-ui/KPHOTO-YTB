@@ -371,7 +371,8 @@ def translate_srt_batch(
             except GeminiConfigError as exc:
                 for future in futures:
                     future.cancel()
-                raise RuntimeError(f"Lỗi dịch: {exc.hint}") from exc
+                log(f"[Translate] Endpoint từ chối: {exc}")
+                raise RuntimeError(f"Lỗi dịch: {exc.hint}  ·  {exc}") from exc
 
         missing_after_run = sum(not text for text in translated)
         for index, text in enumerate(translated):
