@@ -40,7 +40,7 @@ from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget, QDialog,
-    QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
+    QDialogButtonBox, QComboBox, QProgressBar, QProgressDialog, QCheckBox, QRadioButton,
     QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsProxyWidget, QGraphicsRectItem, QGraphicsPixmapItem,
     QGraphicsBlurEffect, QButtonGroup, QSpinBox, QFontComboBox, QColorDialog,
@@ -260,6 +260,26 @@ class TaskWorker(QObject):
             self.done.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
+
+
+class _UpdateWorker(QObject):
+    """Downloads and installs the release update off the GUI thread."""
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(bool)
+
+    def __init__(self, url: str, total_bytes: int):
+        super().__init__()
+        self.url, self.total_bytes = url, total_bytes
+
+    def run(self):
+        try:
+            ok = download_and_install(
+                self.url, total_bytes=self.total_bytes,
+                progress_callback=self.progress.emit,
+            )
+        except Exception:
+            ok = False
+        self.finished.emit(bool(ok))
 
 
 class PreviewVideoView(QGraphicsView):
@@ -519,7 +539,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1500, self._check_for_update)
 
     def _check_for_update(self):
-        """Check the latest release and silently apply an in-place update."""
+        """Offer an in-place update through a prompt + a download progress bar."""
         release = latest_release()
         if not release:
             return
@@ -537,16 +557,71 @@ class MainWindow(QMainWindow):
             self.write_log("[Update] Bản chạy từ source; bỏ qua tự cập nhật.")
             self.version_label.setText(f"v{VERSION} → có bản mới v{tag} (chạy source)")
             return
-        # Automatic: no prompt. Fetch the new exe, schedule the swap, relaunch.
-        self.version_label.setText(f"v{VERSION} → đang cập nhật v{tag}")
-        self.status.setText(f"Đang tải bản cập nhật {tag}...")
-        self.write_log(f"[Update] Đang tải và cài {tag}; ứng dụng sẽ tự khởi động lại.")
-        if download_and_install(asset.get("browser_download_url", "")):
-            self.status.setText(f"Đã tải {tag}. Đang khởi động lại...")
-            QTimer.singleShot(500, QApplication.quit)
-        else:
-            self.write_log("[Update] Không tải/cài được bản cập nhật.")
-            self.version_label.setText(f"v{VERSION} → có bản mới v{tag} (cập nhật lỗi)")
+        self.version_label.setText(f"v{VERSION} → có bản mới v{tag}")
+        total_bytes = int(asset.get("size", 0) or 0)
+        size_note = f" (~{total_bytes / 1024 / 1024:.0f} MB)" if total_bytes else ""
+        answer = QMessageBox.question(
+            self, "Cập nhật KPHOTO-YTB",
+            f"Đã có bản mới v{tag}{size_note}.\n"
+            f"Bản đang dùng: v{VERSION}.\n\n"
+            f"Tải và cài ngay? Ứng dụng sẽ tự khởi động lại sau khi cài.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.status.setText(f"Bỏ qua cập nhật v{tag}.")
+            return
+        self._start_update_download(asset.get("browser_download_url", ""), tag, total_bytes)
+
+    def _start_update_download(self, url: str, tag: str, total_bytes: int):
+        dialog = QProgressDialog(
+            f"Đang tải bản cập nhật v{tag}...", None, 0, 100, self
+        )
+        dialog.setWindowTitle("Cập nhật KPHOTO-YTB")
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dialog.setCancelButton(None)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.setValue(0)
+
+        thread = QThread(self)
+        worker = _UpdateWorker(url, total_bytes)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+
+        def _on_progress(percent: int):
+            dialog.setValue(percent)
+            dialog.setLabelText(
+                f"Đang tải bản cập nhật v{tag}...  {percent}%"
+                if percent < 100 else "Đang cài đặt, vui lòng chờ..."
+            )
+
+        def _on_finished(ok: bool):
+            thread.quit()
+            thread.wait(3000)
+            dialog.close()
+            self._update_thread = None
+            self._update_worker = None
+            if ok:
+                self.status.setText(f"Đã tải v{tag}. Đang khởi động lại...")
+                self.write_log(f"[Update] Cài {tag} xong, khởi động lại.")
+                QTimer.singleShot(400, QApplication.quit)
+            else:
+                self.write_log("[Update] Không tải/cài được bản cập nhật.")
+                self.version_label.setText(f"v{VERSION} → có bản mới v{tag} (lỗi)")
+                QMessageBox.warning(
+                    self, "Cập nhật lỗi",
+                    "Không tải được bản cập nhật. Kiểm tra mạng rồi mở lại ứng dụng để thử lại.",
+                )
+
+        worker.progress.connect(_on_progress)
+        worker.finished.connect(_on_finished)
+        self._update_thread = thread
+        self._update_worker = worker
+        self.write_log(f"[Update] Đang tải bản cập nhật v{tag}...")
+        thread.start()
+        dialog.exec()
 
     def _build_ui_v3(self):
         self.setMinimumSize(1100, 720)

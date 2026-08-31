@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, tempfile, zipfile, subprocess, os, sys
+import json, tempfile, time, zipfile, subprocess, os, sys
 from config import GITHUB_OWNER, GITHUB_REPO
 
 # Windows curl uses the machine certificate store (Schannel), avoiding
@@ -27,6 +27,30 @@ def _curl_to_file(url: str, target: str, timeout: int) -> bool:
     )
 
 
+def _curl_download_progress(url, target, total_bytes, progress_callback, timeout=5400):
+    """curl to a file while reporting 0-100 percent from the growing file size."""
+    try:
+        proc = subprocess.Popen(
+            _CURL + ["--max-time", str(timeout), "--output", target, url],
+            creationflags=_NO_WINDOW,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return False
+    while proc.poll() is None:
+        time.sleep(0.5)
+        if progress_callback and total_bytes > 0:
+            try:
+                done = os.path.getsize(target)
+            except OSError:
+                done = 0
+            progress_callback(max(1, min(99, int(done * 100 / total_bytes))))
+    ok = proc.returncode == 0 and os.path.isfile(target) and os.path.getsize(target) > 0
+    if ok and progress_callback:
+        progress_callback(100)
+    return ok
+
+
 def latest_release() -> dict | None:
     if not GITHUB_OWNER or not GITHUB_REPO:
         return None
@@ -49,8 +73,13 @@ def latest_release() -> dict | None:
             pass
 
 
-def download_and_install(asset_url: str, asset_name: str = "KPHOTO-YTB_update.zip") -> bool:
-    """Download a release zip and replace the frozen app after it exits."""
+def download_and_install(asset_url: str, asset_name: str = "KPHOTO-YTB_update.zip",
+                         total_bytes: int = 0, progress_callback=None) -> bool:
+    """Download a release zip and replace the frozen app after it exits.
+
+    progress_callback(percent 0-100) is called during the download; the last
+    call is 100 once the archive is on disk and extraction begins.
+    """
     if not getattr(sys, "frozen", False):
         return False
     app_dir = os.path.dirname(sys.executable)
@@ -58,7 +87,12 @@ def download_and_install(asset_url: str, asset_name: str = "KPHOTO-YTB_update.zi
     archive = os.path.join(temp_dir, asset_name)
     try:
         # update.zip is the full app payload (~1.8 GB); allow a slow line.
-        if not _curl_to_file(asset_url, archive, timeout=5400):
+        if progress_callback is not None:
+            ok = _curl_download_progress(asset_url, archive, total_bytes,
+                                         progress_callback, timeout=5400)
+        else:
+            ok = _curl_to_file(asset_url, archive, timeout=5400)
+        if not ok:
             return False
         extract_dir = os.path.join(temp_dir, "new")
         with zipfile.ZipFile(archive) as zf:
