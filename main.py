@@ -1251,13 +1251,35 @@ class MainWindow(QMainWindow):
                 )
             self.log_view.ensureCursorVisible()
             return
-        sep_err = re.search(r"\[SeparateProgress\]\s+ERRITEM\s+(.+?)\s+::\s+(.*)$", text)
-        if sep_err:
-            self.log_view.append(f"  ❌ {sep_err.group(1)} — {sep_err.group(2)}")
+        batch_err = re.search(
+            r"\[(?:SeparateProgress|SrtProgress)\]\s+ERRITEM\s+(.+?)\s+::\s+(.*)$", text
+        )
+        if batch_err:
+            self.log_view.append(f"  ❌ {batch_err.group(1)} — {batch_err.group(2)}")
             self.log_view.ensureCursorVisible()
             return
-        if re.match(r"\[SeparateProgress\]\s+FAIL\s+\d+/\d+\s", text):
-            return  # summarised in the ALLDONE / ERRITEM block at the end
+        if re.match(r"\[(?:SeparateProgress|SrtProgress)\]\s+FAIL\s", text):
+            return  # folded into the ALLDONE / SUMMARY + ERRITEM block at the end
+        srt_summary = re.search(
+            r"\[SrtProgress\]\s+SUMMARY\s+(.+?)\s+::\s+(.+?)\s+::\s+ok=(\d+)\s+::\s+total=(\d+)\s*$", text
+        )
+        if srt_summary:
+            verb, folder = srt_summary.group(1), srt_summary.group(2)
+            ok, total = int(srt_summary.group(3)), int(srt_summary.group(4))
+            if total == 0:
+                self.log_view.append(f"Không tìm thấy file phù hợp trong '{folder}'.")
+            else:
+                self.log_view.append(f"{verb} '{folder}': {ok}/{total} file.")
+                self.log_view.append(
+                    "Không có file nào lỗi." if ok == total else f"Có {total - ok} file lỗi:"
+                )
+            self.log_view.ensureCursorVisible()
+            return
+        srt_item = re.search(r"\[SrtProgress\]\s+(?:ITEM|DONE)\s+\d+/\d+\s+(.+?)\s+::\s+(.+)$", text)
+        if srt_item:
+            self.log_view.append(f"{srt_item.group(1)}: {srt_item.group(2)}")
+            self.log_view.ensureCursorVisible()
+            return
         chunk_match = re.search(r"\[SrtProgress\]\s+CHUNK\s+(\d+)\/(\d+)", text, re.IGNORECASE)
         if chunk_match:
             current, total = int(chunk_match.group(1)), max(1, int(chunk_match.group(2)))
@@ -1274,12 +1296,15 @@ class MainWindow(QMainWindow):
             return
         ocr_match = re.search(r"\[SrtProgress\]\s+OCR_PERCENT\s+(\d+)", text, re.IGNORECASE)
         if ocr_match:
-            percent = max(0, min(100, int(ocr_match.group(1))))
-            self.progress.setValue(percent)
-            if percent in (0, 100) or percent % 5 == 0:
-                self.log_view.append(f"[OCR PP-OCRv6] {percent}%")
+            # Bar only; per-file start/done + folder summary keep the log short.
+            self.progress.setValue(max(0, min(100, int(ocr_match.group(1)))))
             return
-        elif text.startswith("[SrtSource]") or text.startswith("[SrtSync]") or text.startswith("KPHOTO-Local:") or text.startswith("[OCR]"):
+        elif text.startswith("[OCR]"):
+            if any(key in text.lower() for key in ("lỗi", "error", "fail")):
+                self.log_view.append(text)
+                self.log_view.ensureCursorVisible()
+            return
+        elif text.startswith("[SrtSource]") or text.startswith("[SrtSync]") or text.startswith("KPHOTO-Local:"):
             self.log_view.append(text)
             self.log_view.ensureCursorVisible()
             return
@@ -1307,8 +1332,6 @@ class MainWindow(QMainWindow):
         patterns = (
             (r"\[SeparateProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang tách vocal: {}"),
             (r"\[SeparateProgress\]\s+DONE\s+\d+/\d+\s+(.+)$", "Đã hoàn thành tách vocal: {}"),
-            (r"\[SrtProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang xử lý: {}"),
-            (r"\[SrtProgress\]\s+DONE\s+\d+/\d+\s+(.+)$", "Đã xử lý xong: {}"),
             (r"\[Translate\]\s+FILM\s+(.+?)\s+total=", "Đang xử lý: {}"),
             (r"\[Translate\]\s+FILM_DONE\s+(.+?)\s+output=", "Đã xử lý xong: {}"),
             (r"\[Translate\]\s+Chia\s+(.+)$", "Dịch: {}"),

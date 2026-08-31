@@ -512,15 +512,20 @@ def create_srt_batch(
             key=lambda path: str(path.relative_to(root)).casefold(),
         )
         sources = [path for folder in folders for path in _find_vocal_files(folder)]
+    if engine == "rapidocr-v6":
+        verb_run, verb_done, verb_all = "Đang quét OCR", "Đã hoàn thành quét OCR", "Đã quét OCR toàn bộ"
+    else:
+        verb_run, verb_done, verb_all = "Đang tạo SRT", "Đã tạo xong SRT", "Đã tạo SRT toàn bộ"
     log_callback(f"[SrtProgress] START total={len(sources)} source={source_mode}")
     results = []
+    errors = []
     for index, source_path in enumerate(sources, 1):
         folder = source_path.parent
         subtitle_dir = folder / "subtitles"
         subtitle_dir.mkdir(parents=True, exist_ok=True)
         base_name = (source_path.stem if source_mode == "original" else
                      re.sub(r"[\s_-]*\(Vocals\)$", "", source_path.stem, flags=re.IGNORECASE))
-        log_callback(f"[SrtProgress] ITEM {index}/{len(sources)} {source_path.name}")
+        log_callback(f"[SrtProgress] ITEM {index}/{len(sources)} {verb_run} :: {source_path.name}")
         work_dir = None
         try:
             if engine == "rapidocr-v6":
@@ -551,7 +556,7 @@ def create_srt_batch(
             if not segments:
                 raise RuntimeError("Khong nhan dang duoc cau thoai.")
             if source_mode == "video":
-                log_callback("[SrtSync] OCR dung truc tiep timeline khung hinh cua video.")
+                pass  # OCR reads frame timeline directly; nothing to align
             elif source_mode == "original":
                 log_callback("[SrtSync] Dung timeline audio goc cua video, khong can co timestamp.")
             else:
@@ -568,12 +573,18 @@ def create_srt_batch(
                 raise RuntimeError(f"Khong ghi duoc file SRT: {output_path}")
             results.append(str(output_path))
             log_callback(f"[SrtProgress] OUTPUT {output_path}")
-            log_callback(f"[SrtProgress] DONE {index}/{len(sources)}")
+            log_callback(f"[SrtProgress] DONE {index}/{len(sources)} {verb_done} :: {source_path.name}")
         except Exception as exc:
-            log_callback(f"[SrtProgress] FAIL {index}/{len(sources)} {source_path.name}: {exc}")
+            errors.append((source_path.name, str(exc)))
+            log_callback(f"[SrtProgress] FAIL {index}/{len(sources)} :: {source_path.name} :: {exc}")
         finally:
             if work_dir is not None:
                 shutil.rmtree(work_dir, ignore_errors=True)
+    log_callback(
+        f"[SrtProgress] SUMMARY {verb_all} :: {root.name} :: ok={len(results)} :: total={len(sources)}"
+    )
+    for name, msg in errors:
+        log_callback(f"[SrtProgress] ERRITEM {name} :: {msg}")
     if not results:
         raise RuntimeError(
             "Không tạo được file SRT nào. Kiểm tra model OCR và vùng Khung OCR đã chọn."
