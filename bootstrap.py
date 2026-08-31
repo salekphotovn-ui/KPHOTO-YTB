@@ -9,12 +9,12 @@ from pathlib import Path
 
 
 PACKAGES = (
-    ("Ứng dụng", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_update.zip"),
-    ("FFmpeg và BBDown", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_bin.zip"),
-    ("Models", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_models.zip"),
-    ("Runtime cơ bản", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_runtime_core.zip"),
-    ("Runtime CUDA 1/2", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_runtime_cuda_a.zip"),
-    ("Runtime CUDA 2/2", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.1.0/KPHOTO-YTB_runtime_cuda_b.zip"),
+    ("Ứng dụng", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_update.zip"),
+    ("FFmpeg và BBDown", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_bin.zip"),
+    ("Models", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_models.zip"),
+    ("Runtime cơ bản", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_runtime_core.zip"),
+    ("Runtime CUDA 1/2", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_runtime_cuda_a.zip"),
+    ("Runtime CUDA 2/2", "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download/v0.3.2/KPHOTO-YTB_runtime_cuda_b.zip"),
 )
 
 
@@ -44,13 +44,15 @@ def safe_extract(archive: Path, destination: Path) -> None:
 
 
 def create_desktop_shortcut(app_exe: Path) -> None:
+    exe_path = str(app_exe).replace("'", "''")
+    work_path = str(app_exe.parent).replace("'", "''")
     script = (
         "$desktop=[Environment]::GetFolderPath('Desktop');"
         "$shell=New-Object -ComObject WScript.Shell;"
         "$shortcut=$shell.CreateShortcut((Join-Path $desktop 'KPHOTO-YTB.lnk'));"
-        f"$shortcut.TargetPath='{str(app_exe).replace("'", "''")}';"
-        f"$shortcut.WorkingDirectory='{str(app_exe.parent).replace("'", "''")}';"
-        f"$shortcut.IconLocation='{str(app_exe).replace("'", "''")},0';"
+        f"$shortcut.TargetPath='{exe_path}';"
+        f"$shortcut.WorkingDirectory='{work_path}';"
+        f"$shortcut.IconLocation='{exe_path},0';"
         "$shortcut.Save()"
     )
     subprocess.run(

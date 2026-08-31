@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 APP_NAME = "KPHOTO-YTB"
-VERSION = "0.1.0"
+VERSION = "0.3.2"
 
 
 def load_local_provider_config() -> None:
