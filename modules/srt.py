@@ -574,4 +574,8 @@ def create_srt_batch(
         finally:
             if work_dir is not None:
                 shutil.rmtree(work_dir, ignore_errors=True)
+    if not results:
+        raise RuntimeError(
+            "Không tạo được file SRT nào. Kiểm tra model OCR và vùng Khung OCR đã chọn."
+        )
     return results
