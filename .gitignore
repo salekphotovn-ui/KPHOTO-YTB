@@ -18,3 +18,5 @@ test_audio/*.wav
 test_audio/*.flac
 config.local.json
 browser-profile-bilibili/
+
+.claude/settings.local.json
