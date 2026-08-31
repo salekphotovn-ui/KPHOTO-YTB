@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, QSizeF, QRectF, QPointF, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPen, QPixmap, QIcon
+from PyQt6.QtGui import QColor, QBrush, QPen, QPixmap, QIcon, QFont
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtWidgets import (
@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox, QComboBox, QProgressBar, QCheckBox, QRadioButton,
     QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsProxyWidget, QGraphicsRectItem, QGraphicsPixmapItem,
-    QGraphicsBlurEffect, QButtonGroup,
+    QGraphicsBlurEffect, QButtonGroup, QSpinBox, QFontComboBox, QColorDialog,
 )
 
 from modules.separator import separate_folder
@@ -468,6 +468,7 @@ class MainWindow(QMainWindow):
         self._auto_done_steps = set()
         self._auto_running_steps = set()
         self.overlay_configs = {}
+        self.subtitle_style = {"family": "Segoe UI", "size": 22, "color": "#ffffff"}
         self._last_download_percent = None
         if not hasattr(self, "_activity_timer"):
             self._activity_timer = QTimer(self)
@@ -576,10 +577,7 @@ class MainWindow(QMainWindow):
         self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.subtitle_label.setWordWrap(True)
         self.subtitle_label.setContentsMargins(8, 0, 8, 0)
-        self.subtitle_label.setStyleSheet(
-            "QLabel { color:white; background:transparent; border:none; "
-            "font-size:22px; font-weight:800; padding:2px; }"
-        )
+        self._apply_subtitle_style()
         self.subtitle_proxy = DraggableSubtitleProxy()
         self.subtitle_proxy.setWidget(self.subtitle_label)
         self.video_scene.addItem(self.subtitle_proxy)
@@ -651,7 +649,10 @@ class MainWindow(QMainWindow):
         self.blur_button.clicked.connect(self._enable_blur_region)
         controls.addWidget(self.blur_button)
         controls.addWidget(QPushButton("+ Logo"))
-        controls.addWidget(QPushButton("+ Khung"))
+        self.font_button = QPushButton("Font")
+        self.font_button.setToolTip("Chỉnh cỡ chữ, phông và màu phụ đề trên bảng xem trước")
+        self.font_button.clicked.connect(self._open_font_dialog)
+        controls.addWidget(self.font_button)
         self.blur_strength_label = QLabel("Mờ 30")
         controls.addWidget(self.blur_strength_label)
         self.blur_strength = QSlider(Qt.Orientation.Horizontal)
@@ -775,6 +776,12 @@ class MainWindow(QMainWindow):
         self.blur_preview_item.hide()
         video_config = self.overlay_configs.get(str(video_path.resolve()), {})
         self._subtitle_user_position = "subtitle_y_ratio" in video_config
+        stored_style = video_config.get("subtitle_style")
+        self.subtitle_style = {
+            "family": "Segoe UI", "size": 22, "color": "#ffffff",
+            **(stored_style if isinstance(stored_style, dict) else {}),
+        }
+        self._apply_subtitle_style()
         self.preview_subtitles = self._load_preview_subtitles(video_path)
         self.subtitle_label.clear()
         self.media_player.setSource(QUrl.fromLocalFile(str(video_path.resolve())))
@@ -1027,6 +1034,86 @@ class MainWindow(QMainWindow):
         self.status.setText(
             f"Đã lưu khung OCR {roi[2] * 100:.1f}% × {roi[3] * 100:.1f}% cho {self.preview_video_path.name}"
         )
+
+    def _apply_subtitle_style(self):
+        style = self.subtitle_style
+        self.subtitle_label.setStyleSheet(
+            "QLabel { color:%s; background:transparent; border:none; "
+            "font-family:'%s'; font-size:%dpx; font-weight:800; padding:2px; }"
+            % (style.get("color", "#ffffff"),
+               style.get("family", "Segoe UI"),
+               int(style.get("size", 22)))
+        )
+
+    def _open_font_dialog(self):
+        style = self.subtitle_style
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Font phụ đề (xem trước)")
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel("Phông chữ"))
+        font_combo = QFontComboBox()
+        font_combo.setCurrentFont(QFont(style.get("family", "Segoe UI")))
+        layout.addWidget(font_combo)
+
+        size_row = QHBoxLayout()
+        size_row.addWidget(QLabel("Cỡ chữ"))
+        size_spin = QSpinBox()
+        size_spin.setRange(10, 60)
+        size_spin.setValue(int(style.get("size", 22)))
+        size_spin.setSuffix(" px")
+        size_row.addWidget(size_spin, 1)
+        layout.addLayout(size_row)
+
+        chosen = {"color": style.get("color", "#ffffff")}
+        color_row = QHBoxLayout()
+        color_row.addWidget(QLabel("Màu chữ"))
+        color_button = QPushButton()
+
+        def _paint_swatch():
+            color_button.setText(chosen["color"])
+            color_button.setStyleSheet(
+                f"background:{chosen['color']}; color:#000000; font-weight:800;"
+            )
+
+        def _pick_color():
+            picked = QColorDialog.getColor(
+                QColor(chosen["color"]), dialog, "Màu chữ phụ đề"
+            )
+            if picked.isValid():
+                chosen["color"] = picked.name()
+                _paint_swatch()
+
+        color_button.clicked.connect(_pick_color)
+        _paint_swatch()
+        color_row.addWidget(color_button, 1)
+        layout.addLayout(color_row)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.subtitle_style = {
+            "family": font_combo.currentFont().family(),
+            "size": int(size_spin.value()),
+            "color": chosen["color"],
+        }
+        self._apply_subtitle_style()
+        if self.preview_video_path:
+            config = self.overlay_configs.setdefault(
+                str(self.preview_video_path.resolve()), {}
+            )
+            config["subtitle_style"] = dict(self.subtitle_style)
+            self.status.setText(
+                f"Đã lưu font phụ đề cho {self.preview_video_path.name}: "
+                f"{self.subtitle_style['family']} · {self.subtitle_style['size']}px · "
+                f"{self.subtitle_style['color']}"
+            )
 
     def _subtitle_was_moved(self):
         self._subtitle_user_position = True
