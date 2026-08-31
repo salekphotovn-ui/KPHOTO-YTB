@@ -124,15 +124,20 @@ class AutoProcessDialog(QDialog):
         ("export", "Xuất video (blur + phụ đề)"),
     ]
 
-    def __init__(self, has_pending_download=False, parent=None):
+    def __init__(self, has_pending_download=False, done_steps=(), parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chọn quy trình tự động")
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Tích chọn các bước muốn chạy (chạy lần lượt từ trên xuống):"))
+        done_steps = set(done_steps)
+        # Steps already finished this session start unticked; if that would
+        # leave nothing ticked, the cycle is over, so offer every step again.
+        if done_steps.issuperset(key for key, _ in self.STEP_ITEMS if key != "download"):
+            done_steps = set()
         self.checks = {}
         for key, label in self.STEP_ITEMS:
             check = QCheckBox(label)
-            check.setChecked(True)
+            check.setChecked(key not in done_steps)
             if key == "download" and not has_pending_download:
                 check.setChecked(False)
                 check.setEnabled(False)
@@ -474,6 +479,8 @@ class MainWindow(QMainWindow):
         self.pending_download_links = []
         self.pending_download_dfn = "720P 高清, 720P"
         self.auto_button = None
+        self._auto_done_steps = set()
+        self._auto_running_steps = set()
         self.overlay_configs = {}
         self._last_download_percent = None
         if not hasattr(self, "_activity_timer"):
@@ -737,6 +744,7 @@ class MainWindow(QMainWindow):
             return
         self.root = Path(selected)
         self.folder_label.setText(str(self.root))
+        self._auto_done_steps = set()
         self._refresh_movie_list()
 
     def _refresh_movie_list(self):
@@ -1450,6 +1458,14 @@ class MainWindow(QMainWindow):
         self.log_view.clear()
         self.log_view.append(f"[Hoàn tất] {label}: {self.root.name}")
         self.log_view.ensureCursorVisible()
+        if self._auto_running_steps:
+            # Remember finished steps so the next picker unticks them. Export is
+            # the end of a cycle, so clear and offer every step again after it.
+            if "export" in self._auto_running_steps:
+                self._auto_done_steps = set()
+            else:
+                self._auto_done_steps |= self._auto_running_steps
+            self._auto_running_steps = set()
         self._set_auto_button("Chạy tự động")
         self._release_completed_task()
 
@@ -1459,6 +1475,7 @@ class MainWindow(QMainWindow):
         self.status.setText("Lỗi")
         self.write_log(f"[V3] LỖI: {error}")
         self._write_bug_report(error)
+        self._auto_running_steps = set()
         self._set_auto_button("Chạy tự động")
         self._release_completed_task()
         QMessageBox.critical(self, "Lỗi pipeline", error)
@@ -1536,13 +1553,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Chưa chọn thư mục",
                                 "Hãy chọn thư mục tổng trước khi chạy tự động.")
             return
-        dialog = AutoProcessDialog(bool(self.pending_download_links), self)
+        dialog = AutoProcessDialog(bool(self.pending_download_links),
+                                   self._auto_done_steps, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         steps = dialog.values()
         if not any(steps.values()):
             self.status.setText("Chưa chọn bước nào để chạy.")
             return
+        self._auto_running_steps = {key for key, on in steps.items() if on}
         # OCR-based SRT needs a per-video ROI; block only this run until drawn.
         if steps.get("srt") and not self._auto_ocr_regions_ready():
             return
