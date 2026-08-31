@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import hashlib
 import re
+import threading
 import time
 import traceback
 import os
@@ -44,6 +45,29 @@ class GeminiConfigError(RuntimeError):
     def __init__(self, message: str, hint: str) -> None:
         super().__init__(message)
         self.hint = hint
+
+
+# When the proxy answers HTTP 429 (its upstream Gemini is rate limited) every
+# worker thread parks until this timestamp, so a burst of retries does not keep
+# hammering an endpoint that already told us to slow down.
+_RATE_LIMIT_LOCK = threading.Lock()
+_rate_limit_until = 0.0
+
+
+def _rate_limit_pause(seconds: float) -> None:
+    global _rate_limit_until
+    seconds = max(1.0, min(120.0, seconds))
+    with _RATE_LIMIT_LOCK:
+        _rate_limit_until = max(_rate_limit_until, time.monotonic() + seconds)
+
+
+def _rate_limit_wait() -> None:
+    while True:
+        with _RATE_LIMIT_LOCK:
+            remaining = _rate_limit_until - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 5.0))
 
 
 def _proxy_base_url() -> str:
@@ -176,7 +200,8 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str) 
     )
     model_name = _proxy_model_name()
     last_error = "unknown error"
-    for attempt in range(3):
+    for attempt in range(5):
+        _rate_limit_wait()
         try:
             response = requests.post(
                 f"{base_url}/chat/completions",
@@ -227,6 +252,15 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str) 
             last_error = f"HTTP {response.status_code}: {body[:200]}"
             if response.status_code not in (429, 500, 502, 503, 504):
                 raise RuntimeError(last_error)
+            if response.status_code == 429:
+                # Honour Retry-After when the proxy sends it, otherwise back off
+                # 15s, 30s, 45s... and make every other thread wait it out too.
+                try:
+                    cooldown = float(response.headers.get("Retry-After", ""))
+                except (TypeError, ValueError):
+                    cooldown = 15.0 * (attempt + 1)
+                _rate_limit_pause(cooldown)
+                continue
         time.sleep(min(20, 2 ** attempt))
     raise RuntimeError(f"Endpoint dịch không phản hồi hợp lệ: {last_error}")
 
@@ -349,9 +383,9 @@ def translate_srt_batch(
             return start, end, mapping
 
         try:
-            configured_workers = int(os.getenv("TRANSLATE_WORKERS", "8"))
+            configured_workers = int(os.getenv("TRANSLATE_WORKERS", "3"))
         except ValueError:
-            configured_workers = 8
+            configured_workers = 3
         worker_count = min(max(1, configured_workers), max(1, len(parts)))
         log(f"[Translate] Chia {len(cues)} câu thành {len(parts)} phần xấp xỉ {batch_size} cue, chạy tối đa {worker_count} luồng")
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
