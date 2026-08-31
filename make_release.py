@@ -44,12 +44,16 @@ def run(cmd: list[str]) -> None:
         raise SystemExit(f"Lệnh thất bại ({result.returncode}): {' '.join(cmd)}")
 
 
-def build() -> None:
+def build(clean: bool = True) -> None:
     pyinstaller = ROOT / "venv" / "Scripts" / "pyinstaller.exe"
     if not pyinstaller.is_file():
         raise SystemExit(f"Không thấy {pyinstaller}")
+    # --clean forces a cold rebuild (re-collect torch etc.), which is only
+    # needed when a dependency or bundled data file changed. For a pure-Python
+    # fix, skipping it lets PyInstaller reuse its analysis cache in build/.
+    flags = ["--noconfirm"] + (["--clean"] if clean else [])
     for spec in ("KPHOTO-YTB.spec", "KPHOTO-YTB_Setup.spec"):
-        run([str(pyinstaller), "--noconfirm", "--clean", spec])
+        run([str(pyinstaller), *flags, spec])
     if not (DIST_APP / "KPHOTO-YTB.exe").is_file():
         raise SystemExit("Build không tạo ra dist/KPHOTO-YTB/KPHOTO-YTB.exe")
 
@@ -134,7 +138,9 @@ def main() -> int:
     code_only = "--code-only" in sys.argv
     minimal = "--minimal" in sys.argv or code_only
     if "--package-only" not in sys.argv:
-        build()
+        # code-only fixes touch only .py files -> reuse the PyInstaller cache
+        # unless the caller explicitly forces a cold build with --clean.
+        build(clean="--clean" in sys.argv or not code_only)
     package(minimal=minimal, code_only=code_only)
     assets = " ".join(f'"{p.name}"' for p in sorted(OUT.glob("*")))
     print("\nTiếp theo, chạy trong thư mục", OUT)
