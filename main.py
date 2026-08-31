@@ -205,8 +205,8 @@ class TranslateDialog(QDialog):
         layout.addWidget(self.target)
         layout.addWidget(QLabel("Model dịch:"))
         self.google = QRadioButton("Google Translate Web (miễn phí)"); layout.addWidget(self.google)
-        self.gemini = QRadioButton("Gemini (cần GEMINI_API_KEY)"); layout.addWidget(self.gemini)
-        self.gemini36 = QRadioButton("Gemini 3.6 Flash-High (cần GEMINI_API_KEY)"); self.gemini36.setChecked(True); layout.addWidget(self.gemini36)
+        self.gemini = QRadioButton("Gemini (API chính chủ Google)"); layout.addWidget(self.gemini)
+        self.gemini36 = QRadioButton("Gemini 3.6 Flash-High (API bên thứ 3)"); self.gemini36.setChecked(True); layout.addWidget(self.gemini36)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 

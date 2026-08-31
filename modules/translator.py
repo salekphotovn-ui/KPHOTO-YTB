@@ -27,9 +27,18 @@ NON_WORD_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 # TRANSLATOR_MODEL environment variable) falls back to Gemini 3.6 Flash-High.
 _VALID_MODELS = ("google-web", "gemini", "gemini-3.6-flash-high")
 _DEFAULT_LLM_MODEL = "gemini-3.6-flash-high"
-# Real Google Generative Language model id used for both Gemini options.
-# Override with GEMINI_MODEL if Google renames it.
-_GOOGLE_MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
+
+# "Gemini" (official): Google Generative Language API, key = gemini_api_key.
+_GOOGLE_MODEL_ID = os.getenv("GEMINI_GOOGLE_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
+
+# "Gemini 3.6 Flash-High": an OpenAI-compatible third-party endpoint
+# (base url + bearer key from config.local.json). This is the working default.
+def _proxy_base_url() -> str:
+    return os.getenv("GEMINI_BASE_URL", "").rstrip("/")
+
+
+def _proxy_model_name() -> str:
+    return os.getenv("GEMINI_MODEL", "gemini-3.6-flash-high").strip() or "gemini-3.6-flash-high"
 
 
 class GeminiConfigError(RuntimeError):
@@ -335,6 +344,79 @@ def _gemini_translate(items: list[dict], source: str, target: str, model: str, a
     return _parse_translation_response(text)
 
 
+def _openai_compat_translate(items: list[dict], source: str, target: str, model: str, api_key: str) -> dict[int, str]:
+    """Translate via an OpenAI-compatible /chat/completions endpoint (third-party Gemini proxy)."""
+    base_url = _proxy_base_url()
+    if not base_url:
+        raise GeminiConfigError(
+            "Thiếu GEMINI_BASE_URL cho Gemini 3.6 Flash-High.",
+            hint="Thêm gemini_base_url (URL API bên thứ 3) vào config.local.json.",
+        )
+    if not api_key:
+        raise GeminiConfigError(
+            "Thiếu GEMINI_API_KEY.",
+            hint="Đặt gemini_api_key trong config.local.json rồi mở lại app.",
+        )
+    prompt = (
+        f"Translate subtitle lines from {source} to {target}. Write them as a native "
+        f"{target} subtitle translator would: natural idiomatic wording, correct "
+        "conversational rhythm, and the right register for each speaker. Do not translate "
+        "word-for-word or keep Chinese sentence order. Preserve names, relationships, plot "
+        "facts, emotion and setting. Keep subtitles concise; never add explanations. Return "
+        'JSON only as {"translations":[{"id":0,"text":"..."}]} and include every ID once.\n\n'
+        + json.dumps(items, ensure_ascii=False)
+    )
+    last_error = "unknown error"
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": f"You are a professional native {target} subtitle translator."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 8192,
+                    "stream": False,
+                },
+                timeout=(30, 300),
+            )
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            time.sleep(min(20, 2 ** attempt))
+            continue
+        if response.ok:
+            data = response.json() if response.text.strip() else {}
+            choices = data.get("choices") or []
+            message = choices[0].get("message", {}) if choices else {}
+            text = message.get("content", "") if isinstance(message, dict) else ""
+            if isinstance(text, list):
+                text = "".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in text)
+            if str(text).strip():
+                return _parse_translation_response(text)
+            last_error = "endpoint trả nội dung rỗng"
+        else:
+            body = response.text[:400]
+            if response.status_code in (400, 401, 403) and any(m in body for m in _KEY_INVALID_MARKERS):
+                raise GeminiConfigError(
+                    f"HTTP {response.status_code}: {body[:200]}",
+                    hint="GEMINI_API_KEY (bên thứ 3) sai hoặc hết hạn — cập nhật gemini_api_key trong config.local.json.",
+                )
+            if response.status_code in (401, 403):
+                raise GeminiConfigError(
+                    f"HTTP {response.status_code}: {body[:200]}",
+                    hint="API key bị endpoint từ chối — kiểm tra gemini_api_key / gemini_base_url trong config.local.json.",
+                )
+            last_error = f"HTTP {response.status_code}: {body[:200]}"
+            if response.status_code not in (429, 500, 502, 503, 504):
+                raise RuntimeError(last_error)
+        time.sleep(min(20, 2 ** attempt))
+    raise RuntimeError(f"Endpoint dịch không phản hồi hợp lệ: {last_error}")
+
+
 def translate_srt_batch(
     root_path: str,
     target_language: str,
@@ -361,7 +443,15 @@ def translate_srt_batch(
         raise FileNotFoundError("Không tìm thấy zh.srt để dịch.")
     language_names = {"en": "English", "vi": "Vietnamese", "ja": "Japanese", "ko": "Korean", "th": "Thai"}
     target_name = language_names.get(target_language, target_language)
-    google_model = _GOOGLE_MODEL_ID
+
+    def call_llm(batch_items: list[dict]) -> dict[int, str]:
+        if model == "gemini-3.6-flash-high":
+            return _openai_compat_translate(
+                batch_items, "Chinese", target_name, _proxy_model_name(), api_key
+            )
+        return _gemini_translate(
+            batch_items, "Chinese", target_name, _GOOGLE_MODEL_ID, api_key
+        )
 
     for source_path in source_files:
         cues = _read_srt(source_path)
@@ -441,13 +531,13 @@ def translate_srt_batch(
                 for index in range(start, end) if not translated[index]
             ]
             try:
-                mapping = _gemini_translate(items, "Chinese", target_name, google_model, api_key)
+                mapping = call_llm(items)
             except GeminiConfigError:
                 raise
             except RuntimeError as exc:
                 log(f"[TranslateRetry] Batch {start + 1}-{end} lỗi, thử lại: {exc}")
                 try:
-                    mapping = _gemini_translate(items, "Chinese", target_name, google_model, api_key)
+                    mapping = call_llm(items)
                 except GeminiConfigError:
                     raise
                 except RuntimeError as exc2:
@@ -461,10 +551,7 @@ def translate_srt_batch(
             ]
             for index in missing[:3]:
                 try:
-                    retry = _gemini_translate(
-                        [{"id": index, "text": cues[index]["text"]}],
-                        "Chinese", target_name, google_model, api_key,
-                    )
+                    retry = call_llm([{"id": index, "text": cues[index]["text"]}])
                 except GeminiConfigError:
                     raise
                 except RuntimeError as exc:

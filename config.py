@@ -24,15 +24,23 @@ def load_local_provider_config() -> None:
     if isinstance(data, dict):
         # An explicit config.local.json is the shared, persistent configuration
         # selected by the user. It must win over stale variables inherited from
-        # a PowerShell window. Translation uses Google Gemini only, so a single
-        # GEMINI_API_KEY is enough; older per-model key names still feed it.
+        # a PowerShell window. Translation uses Gemini only:
+        #   - "Gemini 3.6 Flash-High" -> gemini_base_url + gemini_api_key
+        #     (an OpenAI-compatible third-party endpoint)
+        #   - "Gemini" -> Google's official API, gemini_api_key
         gemini_key = (
             data.get("gemini_api_key")
             or data.get("gemini36_api_key")
             or data.get("gemini31_api_key")
+            or data.get("qwen_api_key")
         )
         if gemini_key:
             os.environ["GEMINI_API_KEY"] = str(gemini_key)
+        base_url = data.get("gemini_base_url") or data.get("qwen_base_url")
+        if base_url:
+            os.environ["GEMINI_BASE_URL"] = str(base_url)
+        # Proxy model name for "Gemini 3.6 Flash-High"; defaults to
+        # gemini-3.6-flash-high in translator.py when unset.
         if data.get("gemini_model"):
             os.environ["GEMINI_MODEL"] = str(data["gemini_model"])
 
