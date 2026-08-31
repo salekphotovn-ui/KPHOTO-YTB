@@ -1300,8 +1300,10 @@ class MainWindow(QMainWindow):
             self.progress.setValue(max(0, min(100, int(ocr_match.group(1)))))
             return
         elif text.startswith("[OCR]"):
-            if any(key in text.lower() for key in ("lỗi", "error", "fail")):
-                self.log_view.append(text)
+            low = text.lower()
+            # Keep the per-file stats/error lines; drop the setup chatter.
+            if any(key in low for key in ("lỗi", "error", "fail", "goi model", "nhan duoc", "cue")):
+                self.log_view.append("[OCR]" + text.split("]", 1)[-1])
                 self.log_view.ensureCursorVisible()
             return
         elif text.startswith("[SrtSource]") or text.startswith("[SrtSync]") or text.startswith("KPHOTO-Local:"):

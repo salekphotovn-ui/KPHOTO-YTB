@@ -231,7 +231,11 @@ def run_rapidocr_video(video_path: Path, log_callback=print, roi=None) -> dict:
     except AttributeError:
         pass
 
-    sample_interval = max(0.05, float(os.getenv("BILI2YT_OCR_INTERVAL", "0.1")))
+    # The OCR model call is ~95% of the run time, so the sample rate is the
+    # main speed lever. 0.3s (~3 checks/s) still catches every dialogue card
+    # while roughly halving the calls versus 0.1s. Override per machine with
+    # BILI2YT_OCR_INTERVAL (e.g. 0.5 for faster, 0.1 for tightest timing).
+    sample_interval = max(0.05, float(os.getenv("BILI2YT_OCR_INTERVAL", "0.3")))
     engine = _load_engine(log_callback)
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
