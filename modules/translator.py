@@ -1,4 +1,9 @@
-"""Google Web / Gemini subtitle translation for the V3 batch workflow."""
+"""Gemini 3.6 Flash-High subtitle translation for the V3 batch workflow.
+
+Translation goes through one OpenAI-compatible endpoint (a third-party Gemini
+proxy): base url + bearer key come from config.local.json
+(gemini_base_url / gemini_api_key), model name from GEMINI_MODEL.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
-from urllib.parse import quote
 
 from config import TRANSLATOR_MODEL
 
@@ -21,28 +25,18 @@ TIME_RE = re.compile(
     r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s+-->\s+"
     r"(\d{2}):(\d{2}):(\d{2}),(\d{3})"
 )
-NON_WORD_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 
-# Only these three models exist in the UI. Anything else (e.g. a stale
-# TRANSLATOR_MODEL environment variable) falls back to Gemini 3.6 Flash-High.
-_VALID_MODELS = ("google-web", "gemini", "gemini-3.6-flash-high")
-_DEFAULT_LLM_MODEL = "gemini-3.6-flash-high"
+_MODEL = "gemini-3.6-flash-high"
 
-# "Gemini" (official): Google Generative Language API, key = gemini_api_key.
-_GOOGLE_MODEL_ID = os.getenv("GEMINI_GOOGLE_MODEL", "gemini-3-flash-preview").strip() or "gemini-3-flash-preview"
-
-# "Gemini 3.6 Flash-High": an OpenAI-compatible third-party endpoint
-# (base url + bearer key from config.local.json). This is the working default.
-def _proxy_base_url() -> str:
-    return os.getenv("GEMINI_BASE_URL", "").rstrip("/")
-
-
-def _proxy_model_name() -> str:
-    return os.getenv("GEMINI_MODEL", "gemini-3.6-flash-high").strip() or "gemini-3.6-flash-high"
+_KEY_INVALID_MARKERS = (
+    "API_KEY_INVALID", "API key not valid", "API_KEY_SERVICE_BLOCKED",
+    "PERMISSION_DENIED", "authentication", "invalid authentication",
+    "invalid_api_key", "unauthorized",
+)
 
 
 class GeminiConfigError(RuntimeError):
-    """A Gemini failure that retrying cannot fix: bad API key or unknown model.
+    """A failure that retrying cannot fix (bad key / bad base url / bad model).
 
     ``hint`` is a short Vietnamese sentence telling the user what to change.
     """
@@ -52,19 +46,12 @@ class GeminiConfigError(RuntimeError):
         self.hint = hint
 
 
-_KEY_INVALID_MARKERS = (
-    "API_KEY_INVALID", "API key not valid", "API_KEY_SERVICE_BLOCKED",
-    "PERMISSION_DENIED", "authentication", "invalid authentication",
-)
-_MODEL_MISSING_MARKERS = (
-    "NOT_FOUND", "is not found", "was not found", "not supported",
-    "does not exist", "Unknown name",
-)
+def _proxy_base_url() -> str:
+    return os.getenv("GEMINI_BASE_URL", "").rstrip("/")
 
 
-def _normalise_model(model: str) -> str:
-    model = str(model or TRANSLATOR_MODEL).strip().lower()
-    return model if model in _VALID_MODELS else _DEFAULT_LLM_MODEL
+def _proxy_model_name() -> str:
+    return os.getenv("GEMINI_MODEL", "gemini-3.6-flash-high").strip() or "gemini-3.6-flash-high"
 
 
 def _translation_signature(cues: list[dict], model: str, target: str) -> str:
@@ -126,7 +113,7 @@ def _parse_translation_response(raw: str) -> dict[int, str]:
     except (ValueError, TypeError, KeyError):
         pass
 
-    # Recover valid id/text pairs when Gemini inserted raw control characters.
+    # Recover valid id/text pairs when the model inserted raw control characters.
     recovered = {}
     pattern = re.compile(r'"id"\s*:\s*(\d+)\s*,\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"', re.S)
     for match in pattern.finditer(text):
@@ -165,187 +152,8 @@ def _write_srt(path: Path, cues: list[dict]) -> None:
     path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
 
 
-def _prepare_google_cues(cues: list[dict], log) -> list[dict]:
-    """Normalize text without changing cue count or timeline alignment."""
-    prepared = [{**cue, "text": " ".join(str(cue.get("text") or "").split())} for cue in cues]
-    empty = sum(not cue["text"] for cue in prepared)
-    punctuation = sum(
-        bool(cue["text"]) and bool(NON_WORD_RE.fullmatch(cue["text"]))
-        for cue in prepared
-    )
-    if empty or punctuation:
-        log(
-            f"[Translate] Preprocess: giu nguyen {len(prepared)} cue, "
-            f"{empty} cue rong, {punctuation} cue dau cau"
-        )
-    return prepared
-
-
-def _google_web_translate(text: str, target_language: str) -> str:
-    url = (
-        "https://translate.googleapis.com/translate_a/single?client=gtx"
-        f"&sl=zh-CN&tl={quote(target_language)}&dt=t&q={quote(text or '')}"
-    )
-    last_error = "unknown error"
-    for attempt in range(6):
-        try:
-            response = requests.get(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0",
-                    "Accept": "application/json,text/plain,*/*",
-                },
-                timeout=20,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            translated = "".join(
-                item[0] for item in (payload[0] if payload else [])
-                if isinstance(item, list) and item and isinstance(item[0], str)
-            ).strip()
-            if translated:
-                return translated
-            raise RuntimeError("Google Web returned empty text.")
-        except (requests.RequestException, ValueError, RuntimeError) as exc:
-            last_error = exc
-            if attempt < 2:
-                time.sleep(attempt + 1)
-    raise RuntimeError(f"Google Web failed after retries: {last_error}")
-
-
-def _repair_google_translation(text: str, source_text: str = "") -> str:
-    """Fix a few stable Google-Web mistranslations without changing normal output."""
-    cleaned = text.strip()
-    if re.search(r"\bSri Lanka\b", cleaned, re.IGNORECASE) and re.search(
-        r"\b(great responsibilities|great responsibility|entrust)\b", cleaned, re.IGNORECASE
-    ):
-        return "When Heaven is about to entrust someone with a great responsibility..."
-    return cleaned
-
-
-def _translate_google_web(cues: list[dict], target_language: str, log) -> list[dict]:
-    translated = [""] * len(cues)
-    batch_size = 10
-    batches = [
-        list(range(start, min(start + batch_size, len(cues))))
-        for start in range(0, len(cues), batch_size)
-    ]
-    log(f"[Translate] Google Web: {len(cues)} cau, chia {len(batches)} nhom {batch_size} cau")
-
-    for batch_number, indexes in enumerate(batches, 1):
-        active = [index for index in indexes if str(cues[index].get("text") or "").strip()
-                  and not NON_WORD_RE.fullmatch(str(cues[index].get("text") or "").strip())]
-        if not active:
-            for index in indexes:
-                translated[index] = cues[index].get("text") or ""
-            continue
-        marked = "\n".join(f"[{index + 1}] {cues[index]['text']}" for index in active)
-        try:
-            result = _google_web_translate(marked, target_language)
-            lines = [line.strip() for line in result.splitlines() if line.strip()]
-            parsed = {}
-            for line in lines:
-                match = re.match(r"^\[(\d+)\]\s*(.*)$", line)
-                if match:
-                    parsed[int(match.group(1)) - 1] = match.group(2).strip()
-            if set(parsed) != set(active):
-                raise RuntimeError("Google Web lam mat marker cue")
-            for index in active:
-                translated[index] = _repair_google_translation(
-                    parsed[index] or cues[index]["text"], cues[index]["text"]
-                )
-        except Exception:
-            # A malformed batch is retried cue-by-cue so one bad response does
-            # not discard the whole subtitle file.
-            log(f"[Translate] Nhom {batch_number} khong tach duoc, fallback tung cue")
-            for index in active:
-                translated[index] = _repair_google_translation(
-                    _google_web_translate(cues[index]["text"], target_language),
-                    cues[index]["text"],
-                )
-        for index in indexes:
-            if not translated[index]:
-                translated[index] = cues[index].get("text") or ""
-        log(f"[TranslateProgress] {min(batch_number * batch_size, len(cues))}/{len(cues)}")
-    return [{**cue, "text": translated[index]} for index, cue in enumerate(cues)]
-
-
-def _gemini_translate(items: list[dict], source: str, target: str, model: str, api_key: str) -> dict[int, str]:
-    if not api_key:
-        raise GeminiConfigError(
-            "Thiếu GEMINI_API_KEY.",
-            hint="Đặt gemini_api_key trong config.local.json rồi mở lại app.",
-        )
-    style_guidance = {
-        "English": "Use natural idiomatic English subtitle grammar and English-speaking cultural phrasing. Do not preserve Chinese word order or translate literally. Keep it concise for video subtitles: prefer 35-42 characters per line, never more than two lines, and remove redundant words without losing meaning.",
-        "Vietnamese": "Use natural Vietnamese spoken subtitle grammar and culturally appropriate Vietnamese expressions. Do not preserve Chinese word order or translate literally.",
-        "Japanese": "Use natural Japanese subtitle grammar, honorifics and culturally appropriate Japanese expressions. Do not preserve Chinese word order.",
-        "Korean": "Use natural Korean subtitle grammar, speech levels and culturally appropriate Korean expressions. Do not preserve Chinese word order.",
-        "Thai": "Use natural Thai subtitle grammar and culturally appropriate Thai expressions. Do not preserve Chinese word order.",
-    }.get(target, f"Use natural grammar and cultural phrasing for {target}; do not translate word-for-word.")
-    prompt = (
-        f"Translate these subtitle lines directly from {source} to {target}. "
-        f"{style_guidance} Preserve meaning, names, relationships and emotion while keeping the original subtitle timing. "
-        "Keep every ID exactly once. Return JSON only in the form "
-        '{"translations":[{"id":0,"text":"..."}]}.\n\n'
-        + json.dumps(items, ensure_ascii=False)
-    )
-    fallback_model = "gemini-3.1-pro-preview" if "flash" not in model else "gemini-3-flash-preview"
-    models = list(dict.fromkeys((model, fallback_model)))
-    response = None
-    for model_name in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-        for attempt in range(3):
-            try:
-                response = requests.post(
-                    url,
-                    headers={"x-goog-api-key": api_key},
-                    json={
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
-                    },
-                    timeout=(30, 300),
-                )
-            except requests.RequestException as exc:
-                if attempt == 2 and model_name == models[-1]:
-                    raise RuntimeError(f"Gemini không phản hồi sau nhiều lần thử: {exc}") from exc
-                time.sleep(2 ** attempt)
-                continue
-            status = response.status_code
-            body = response.text[:400]
-            if status in (400, 401, 403) and any(m in body for m in _KEY_INVALID_MARKERS):
-                raise GeminiConfigError(
-                    f"Gemini HTTP {status}: {body[:200]}",
-                    hint="GEMINI_API_KEY sai hoặc hết hạn — cập nhật gemini_api_key trong config.local.json.",
-                )
-            if status in (401, 403):
-                raise GeminiConfigError(
-                    f"Gemini HTTP {status}: {body[:200]}",
-                    hint="GEMINI_API_KEY bị Google từ chối — kiểm tra khóa trong config.local.json.",
-                )
-            if status not in (429, 500, 502, 503, 504):
-                break
-            time.sleep(2 ** attempt)
-        if response is not None and response.ok:
-            break
-    if response is None or not response.ok:
-        status = response.status_code if response is not None else "unknown"
-        detail = response.text[:300] if response is not None else "no response"
-        if response is not None and (status == 404 or any(m in detail for m in _MODEL_MISSING_MARKERS)):
-            raise GeminiConfigError(
-                f"Gemini HTTP {status}: {detail[:200]}",
-                hint=f"Model '{models[0]}' không tồn tại — đặt GEMINI_MODEL (hoặc gemini_model trong config.local.json) sang id model Gemini hợp lệ.",
-            )
-        raise RuntimeError(f"Gemini HTTP {status}: {detail}")
-    candidates = response.json().get("candidates", [])
-    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text") if candidates else ""
-    text = str(text or "")
-    text = re.sub(r"^```json\s*|\s*```$", "", text.strip())
-    return _parse_translation_response(text)
-
-
-def _openai_compat_translate(items: list[dict], source: str, target: str, model: str, api_key: str) -> dict[int, str]:
-    """Translate via an OpenAI-compatible /chat/completions endpoint (third-party Gemini proxy)."""
+def _translate_batch(items: list[dict], source: str, target: str, api_key: str) -> dict[int, str]:
+    """One /chat/completions call to the OpenAI-compatible Gemini endpoint."""
     base_url = _proxy_base_url()
     if not base_url:
         raise GeminiConfigError(
@@ -366,6 +174,7 @@ def _openai_compat_translate(items: list[dict], source: str, target: str, model:
         'JSON only as {"translations":[{"id":0,"text":"..."}]} and include every ID once.\n\n'
         + json.dumps(items, ensure_ascii=False)
     )
+    model_name = _proxy_model_name()
     last_error = "unknown error"
     for attempt in range(3):
         try:
@@ -373,7 +182,7 @@ def _openai_compat_translate(items: list[dict], source: str, target: str, model:
                 f"{base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": model,
+                    "model": model_name,
                     "messages": [
                         {"role": "system", "content": f"You are a professional native {target} subtitle translator."},
                         {"role": "user", "content": prompt},
@@ -400,15 +209,20 @@ def _openai_compat_translate(items: list[dict], source: str, target: str, model:
             last_error = "endpoint trả nội dung rỗng"
         else:
             body = response.text[:400]
-            if response.status_code in (400, 401, 403) and any(m in body for m in _KEY_INVALID_MARKERS):
+            if response.status_code in (400, 401, 403) and any(m in body.lower() for m in (x.lower() for x in _KEY_INVALID_MARKERS)):
                 raise GeminiConfigError(
                     f"HTTP {response.status_code}: {body[:200]}",
-                    hint="GEMINI_API_KEY (bên thứ 3) sai hoặc hết hạn — cập nhật gemini_api_key trong config.local.json.",
+                    hint="gemini_api_key sai hoặc hết hạn — cập nhật trong config.local.json.",
                 )
             if response.status_code in (401, 403):
                 raise GeminiConfigError(
                     f"HTTP {response.status_code}: {body[:200]}",
                     hint="API key bị endpoint từ chối — kiểm tra gemini_api_key / gemini_base_url trong config.local.json.",
+                )
+            if response.status_code == 404:
+                raise GeminiConfigError(
+                    f"HTTP 404: {body[:200]}",
+                    hint=f"Endpoint không có model '{model_name}' — đặt gemini_model / gemini_base_url đúng trong config.local.json.",
                 )
             last_error = f"HTTP {response.status_code}: {body[:200]}"
             if response.status_code not in (429, 500, 502, 503, 504):
@@ -425,7 +239,6 @@ def translate_srt_batch(
     log_callback=None,
     source_language: str = "zh",
 ) -> list[str]:
-    model = _normalise_model(model)
     target_language = str(target_language or "en").strip().lower() or "en"
 
     def log(message: str) -> None:
@@ -440,18 +253,11 @@ def translate_srt_batch(
         key=lambda path: str(path).casefold(),
     )
     if not source_files:
-        raise FileNotFoundError("Không tìm thấy zh.srt để dịch.")
+        raise FileNotFoundError(f"Không tìm thấy {source_language}.srt để dịch.")
     language_names = {"en": "English", "vi": "Vietnamese", "ja": "Japanese", "ko": "Korean", "th": "Thai"}
     target_name = language_names.get(target_language, target_language)
-
-    def call_llm(batch_items: list[dict]) -> dict[int, str]:
-        if model == "gemini-3.6-flash-high":
-            return _openai_compat_translate(
-                batch_items, "Chinese", target_name, _proxy_model_name(), api_key
-            )
-        return _gemini_translate(
-            batch_items, "Chinese", target_name, _GOOGLE_MODEL_ID, api_key
-        )
+    source_names = {"zh": "Chinese", "en": "English", "vi": "Vietnamese", "ja": "Japanese", "ko": "Korean", "th": "Thai"}
+    source_name = source_names.get(source_language, "Chinese")
 
     for source_path in source_files:
         cues = _read_srt(source_path)
@@ -460,28 +266,15 @@ def translate_srt_batch(
             film_folder = film_folder.parent
         film_name = film_folder.name
         log(f"[Translate] FILM {film_name} total={len(cues)}")
-        if model == "google-web":
-            translated_cues = _translate_google_web(_prepare_google_cues(cues, log), target_language, log)
-            output_path = source_path.parent / f"{target_language}.srt"
-            _write_srt(output_path, translated_cues)
-            results.append(str(output_path))
-            log(f"[Translate] FILM_DONE {film_name} output={output_path.name}")
-            continue
-        checkpoint_name = ".translate_checkpoint_{}_{}.json".format(
-            target_language,
-            re.sub(r"[^a-z0-9_.-]+", "_", model),
-        )
+
+        checkpoint_name = f".translate_checkpoint_{target_language}_{_MODEL}.json"
         checkpoint_path = source_path.parent / checkpoint_name
-        checkpoint_signature = _translation_signature(cues, model, target_language)
-        translated = _load_translation_checkpoint(
-            checkpoint_path, checkpoint_signature, len(cues)
-        )
+        checkpoint_signature = _translation_signature(cues, _MODEL, target_language)
+        translated = _load_translation_checkpoint(checkpoint_path, checkpoint_signature, len(cues))
         resumed_count = sum(bool(text) for text in translated)
         output_path = source_path.parent / f"{target_language}.srt"
         # Recover useful work from an incomplete output made by an older app
-        # version that had no checkpoint yet. Only do this when that output
-        # still contains source-language lines; a complete output remains
-        # replaceable when the user intentionally selects another model.
+        # version that had no checkpoint yet.
         if not resumed_count and output_path.is_file():
             previous_output = _read_srt(output_path)
             aligned = len(previous_output) == len(cues) and all(
@@ -490,8 +283,7 @@ def translate_srt_batch(
                 for old, source in zip(previous_output, cues)
             )
             incomplete_output = aligned and any(
-                re.search(r"[㐀-鿿]", cue["text"])
-                for cue in previous_output
+                re.search(r"[㐀-鿿]", cue["text"]) for cue in previous_output
             )
             if incomplete_output:
                 for index, old in enumerate(previous_output):
@@ -500,19 +292,14 @@ def translate_srt_batch(
                         translated[index] = old_text
                 resumed_count = sum(bool(text) for text in translated)
                 if resumed_count:
-                    _save_translation_checkpoint(
-                        checkpoint_path, checkpoint_signature, translated
-                    )
-                    log(
-                        f"[TranslateResume] Tận dụng {resumed_count}/{len(cues)} "
-                        "câu từ file dịch dở cũ"
-                    )
+                    _save_translation_checkpoint(checkpoint_path, checkpoint_signature, translated)
+                    log(f"[TranslateResume] Tận dụng {resumed_count}/{len(cues)} câu từ file dịch dở cũ")
         if resumed_count:
             log(
                 f"[TranslateResume] Đã khôi phục {resumed_count}/{len(cues)} câu; "
                 "chỉ gửi lại phần còn thiếu"
             )
-        log(f"[Translate] Đang dịch {source_path.parent.parent.name} ({len(cues)} câu)")
+        log(f"[Translate] Đang dịch {film_name} ({len(cues)} câu)")
         try:
             batch_size = int(os.getenv("TRANSLATE_BATCH_SIZE", "100"))
         except ValueError:
@@ -531,27 +318,27 @@ def translate_srt_batch(
                 for index in range(start, end) if not translated[index]
             ]
             try:
-                mapping = call_llm(items)
+                mapping = _translate_batch(items, source_name, target_name, api_key)
             except GeminiConfigError:
                 raise
             except RuntimeError as exc:
                 log(f"[TranslateRetry] Batch {start + 1}-{end} lỗi, thử lại: {exc}")
                 try:
-                    mapping = call_llm(items)
+                    mapping = _translate_batch(items, source_name, target_name, api_key)
                 except GeminiConfigError:
                     raise
                 except RuntimeError as exc2:
                     log(f"[TranslateSkip] Batch {start + 1}-{end} vẫn lỗi, giữ câu nguồn: {exc2}")
                     mapping = {}
-            # Repair a few missing / source-unchanged lines individually. Larger
-            # failures are left as source text to avoid runaway API cost.
             missing = [
                 index for index in range(start, end)
                 if not mapping.get(index) or mapping[index].strip() == cues[index]["text"].strip()
             ]
             for index in missing[:3]:
                 try:
-                    retry = call_llm([{"id": index, "text": cues[index]["text"]}])
+                    retry = _translate_batch(
+                        [{"id": index, "text": cues[index]["text"]}], source_name, target_name, api_key
+                    )
                 except GeminiConfigError:
                     raise
                 except RuntimeError as exc:
@@ -576,11 +363,7 @@ def translate_srt_batch(
                     for index, text in mapping.items():
                         if start <= index < end:
                             translated[index] = text
-                    # Persist after every batch. os.replace keeps the previous
-                    # valid checkpoint intact if the machine stops mid-write.
-                    _save_translation_checkpoint(
-                        checkpoint_path, checkpoint_signature, translated
-                    )
+                    _save_translation_checkpoint(checkpoint_path, checkpoint_signature, translated)
                     completed += 1
                     saved_count = sum(bool(text) for text in translated)
                     percent = round(saved_count * 100 / max(1, len(cues)))

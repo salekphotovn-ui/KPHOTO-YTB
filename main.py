@@ -198,22 +198,19 @@ class TranslateDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn ngôn ngữ nguồn:"))
         self.source = QComboBox(); self.source.addItems(languages); layout.addWidget(self.source)
+        if self.source.findText("zh") >= 0:
+            self.source.setCurrentText("zh")
         layout.addWidget(QLabel("Chọn ngôn ngữ đầu ra:"))
         self.target = QComboBox()
         for code, label in (("en", "English"), ("vi", "Vietnamese"), ("ja", "Japanese"), ("ko", "Korean"), ("th", "Thai")):
             self.target.addItem(label, code)
         layout.addWidget(self.target)
-        layout.addWidget(QLabel("Model dịch:"))
-        self.google = QRadioButton("Google Translate Web (miễn phí)"); layout.addWidget(self.google)
-        self.gemini = QRadioButton("Gemini (API chính chủ Google)"); layout.addWidget(self.gemini)
-        self.gemini36 = QRadioButton("Gemini 3.6 Flash-High (API bên thứ 3)"); self.gemini36.setChecked(True); layout.addWidget(self.gemini36)
+        layout.addWidget(QLabel("Model dịch: Gemini 3.6 Flash-High"))
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
-        model = ("gemini-3.6-flash-high" if self.gemini36.isChecked() else
-                 ("gemini" if self.gemini.isChecked() else "google-web"))
-        return self.source.currentText(), self.target.currentData(), model
+        return self.source.currentText(), self.target.currentData(), "gemini-3.6-flash-high"
 
 
 class TaskWorker(QObject):
@@ -1640,8 +1637,10 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         source, target, model = dialog.values()
-        api_key = "" if model == "google-web" else os.getenv("GEMINI_API_KEY", "")
-        self.start_task(translate_srt_batch, str(self.root), target, model, api_key, source_language=source)
+        self.start_task(
+            translate_srt_batch, str(self.root), target, model,
+            os.getenv("GEMINI_API_KEY", ""), source_language=source,
+        )
 
     def mux(self):
         self.start_task(mux_folder, str(self.root))
