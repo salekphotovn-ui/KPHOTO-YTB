@@ -57,7 +57,8 @@ def download_and_install(asset_url: str, asset_name: str = "KPHOTO-YTB_update.zi
     temp_dir = tempfile.mkdtemp(prefix="kphoto_update_")
     archive = os.path.join(temp_dir, asset_name)
     try:
-        if not _curl_to_file(asset_url, archive, timeout=600):
+        # update.zip is the full app payload (~1.8 GB); allow a slow line.
+        if not _curl_to_file(asset_url, archive, timeout=5400):
             return False
         extract_dir = os.path.join(temp_dir, "new")
         with zipfile.ZipFile(archive) as zf:

@@ -8,18 +8,17 @@ import zipfile
 from pathlib import Path
 
 
-# The executable ships on the release matching the app VERSION; the heavy
-# bin/models/runtime payloads change rarely and live on RUNTIME_TAG.
-APP_TAG = "v0.3.4"
+# KPHOTO-YTB_update.zip is the full app (exe + _internal minus torch + bin) and
+# lives on APP_TAG; the auto-updater ships every fix through it. Only the
+# never-changing torch and models stay on RUNTIME_TAG.
+APP_TAG = "v0.3.5"
 RUNTIME_TAG = "v0.3.4"
 _BASE = "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download"
 
 # Required packages, always fetched.
 PACKAGES = (
     ("Ứng dụng", f"{_BASE}/{APP_TAG}/KPHOTO-YTB_update.zip"),
-    ("FFmpeg và BBDown", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_bin.zip"),
     ("Models", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_models.zip"),
-    ("Runtime cơ bản", f"{_BASE}/{RUNTIME_TAG}/KPHOTO-YTB_runtime_core.zip"),
 )
 # Torch is split into KPHOTO-YTB_runtime_cuda_<a..>.zip; the packager decides how
 # many parts fit under GitHub's 2 GB asset cap, so fetch a..f and stop at the
