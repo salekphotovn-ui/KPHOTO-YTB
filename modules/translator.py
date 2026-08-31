@@ -281,7 +281,13 @@ def translate_srt_batch(
 
     root = Path(root_path)
     results = []
+    failed_films: list[str] = []
     source_language = str(source_language or "zh").strip().lower()
+    if source_language == target_language:
+        raise RuntimeError(
+            f"Ngôn ngữ nguồn và đầu ra đều là '{target_language}'. "
+            "Chọn nguồn 'zh' và đầu ra 'en' (hoặc ngôn ngữ khác nguồn)."
+        )
     source_files = sorted(
         (path for path in root.rglob("*.srt") if path.stem.lower() == source_language),
         key=lambda path: str(path).casefold(),
@@ -319,7 +325,14 @@ def translate_srt_batch(
             incomplete_output = aligned and any(
                 re.search(r"[㐀-鿿]", cue["text"]) for cue in previous_output
             )
-            if incomplete_output:
+            if aligned and not incomplete_output and all(cue["text"].strip() for cue in previous_output):
+                # A finished, fully non-Chinese en.srt from an earlier run: this
+                # film is already done, so skip re-sending it to the endpoint.
+                for index, old in enumerate(previous_output):
+                    translated[index] = old["text"].strip()
+                resumed_count = len(cues)
+                log(f"[TranslateResume] {film_name}: {output_path.name} đã dịch xong, bỏ qua")
+            elif incomplete_output:
                 for index, old in enumerate(previous_output):
                     old_text = old["text"].strip()
                     if old_text and not re.search(r"[㐀-鿿]", old_text):
@@ -417,7 +430,20 @@ def translate_srt_batch(
         suspicious_long = sum(len(cue["text"]) > 120 for cue in output_cues)
         if leftover_cjk or suspicious_long:
             log(f"[TranslateQA] {film_name}: còn {leftover_cjk} cue có chữ Trung, {suspicious_long} cue quá dài (không gọi thêm request)")
+        # Persist whatever did translate so a re-run resumes, and keep the
+        # checkpoint, but do NOT let the pipeline treat a mostly-Chinese file as
+        # a finished translation (this is what a rate-limit storm produces).
         _write_srt(output_path, output_cues)
+        tolerance = max(3, len(cues) // 20)
+        if missing_after_run > tolerance or leftover_cjk > tolerance:
+            _save_translation_checkpoint(checkpoint_path, checkpoint_signature, translated)
+            results.append(str(output_path))
+            failed_films.append(f"{film_name} ({max(missing_after_run, leftover_cjk)}/{len(cues)})")
+            log(
+                f"[Translate] FILM_FAIL {film_name}: {missing_after_run} câu chưa dịch, "
+                f"{leftover_cjk} cue còn chữ Trung — giữ checkpoint để dịch lại"
+            )
+            continue
         if missing_after_run:
             log(
                 f"[TranslateResume] Còn {missing_after_run} câu chưa dịch; "
@@ -431,6 +457,14 @@ def translate_srt_batch(
         results.append(str(output_path))
         log(f"[Translate] FILM_DONE {film_name} output={output_path.name}")
         log(f"[Translate] Đã lưu {output_path.name}")
+
+    if failed_films:
+        raise RuntimeError(
+            "Dịch chưa xong (endpoint bị giới hạn tốc độ) cho: "
+            + ", ".join(failed_films)
+            + ". Chờ vài phút rồi bấm Dịch lại — phần đã dịch được giữ lại, "
+            "không cần làm lại từ đầu."
+        )
     return results
 
 
