@@ -94,11 +94,13 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
     return folder
 
 
-def run_download_and_auto_pipeline(folder: str, urls: list[str], dfn_priority: str, steps: dict[str, bool], log_callback=None):
+def run_download_and_auto_pipeline(folder: str, urls: list[str], dfn_priority: str, steps: dict[str, bool],
+                                  log_callback=None, ocr_regions=None, overlay_configs=None):
     if log_callback:
         log_callback(f"[AutoStage] Đang tải {len(urls)} link")
     download_multiple(urls, dfn_priority=dfn_priority, output_dir=folder, log_callback=log_callback)
-    return run_auto_pipeline(folder, steps, log_callback=log_callback)
+    return run_auto_pipeline(folder, steps, log_callback=log_callback,
+                             ocr_regions=ocr_regions, overlay_configs=overlay_configs)
 
 
 def mux_and_export(folder: str, overlay_configs=None, log_callback=None):
@@ -112,20 +114,29 @@ def mux_and_export(folder: str, overlay_configs=None, log_callback=None):
 
 
 class AutoProcessDialog(QDialog):
+    STEP_ITEMS = [
+        ("download", "Tải video (link đã nhập)"),
+        ("concat", "Ghép file video"),
+        ("rename", "Đặt tên / phân loại"),
+        ("separate", "Tách vocal"),
+        ("srt", "Quét SRT bằng PP-OCRv6 (cần vẽ Khung OCR)"),
+        ("translate", "Dịch SRT bằng Gemini"),
+        ("export", "Xuất video (blur + phụ đề)"),
+    ]
+
     def __init__(self, has_pending_download=False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chọn quy trình tự động")
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Chọn các bước muốn chạy (mặc định đã chọn hết):"))
+        layout.addWidget(QLabel("Tích chọn các bước muốn chạy (chạy lần lượt từ trên xuống):"))
         self.checks = {}
-        items = [("download", "Tải video (link đã nhập)"), ("concat", "Ghép file video"), ("rename", "Đặt tên / phân loại"), ("separate", "Tách vocal")]
-        for key, label in items:
+        for key, label in self.STEP_ITEMS:
             check = QCheckBox(label)
             check.setChecked(True)
-            if key == "mux":
-                check.setChecked(True)
+            if key == "download" and not has_pending_download:
+                check.setChecked(False)
                 check.setEnabled(False)
-                check.setToolTip("Vocal local sẽ được ghép trực tiếp trong bước Xuất video; không tạo file trung gian.")
+                check.setToolTip("Chưa có link nào đang chờ tải.")
             self.checks[key] = check
             layout.addWidget(check)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -133,33 +144,9 @@ class AutoProcessDialog(QDialog):
 
     def values(self):
         values = {key: check.isChecked() for key, check in self.checks.items()}
-        # These phases are intentionally resumed after the user draws OCR
-        # regions, then paused again before export for visual adjustments.
-        values.update({"srt": True, "translate": True, "mux": False, "export": True})
+        # Local vocal is muxed inside the export step; no separate mux stage.
+        values["mux"] = False
         return values
-
-
-class SrtTranslateProcessDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Tiếp tục quy trình tự động")
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Chọn các bước tiếp theo (mặc định đã chọn hết):"))
-        self.srt = QCheckBox("Quét SRT bằng PP-OCRv6 (timeline 0,1 giây)")
-        self.translate = QCheckBox("Dịch SRT bằng Gemini 3.6 Flash-High")
-        self.srt.setChecked(True)
-        self.translate.setChecked(True)
-        layout.addWidget(self.srt)
-        layout.addWidget(self.translate)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def values(self):
-        return self.srt.isChecked(), self.translate.isChecked()
 
 
 class SrtModelDialog(QDialog):
@@ -486,10 +473,6 @@ class MainWindow(QMainWindow):
         self.pending_task = None
         self.pending_download_links = []
         self.pending_download_dfn = "720P 高清, 720P"
-        self.auto_plan = None
-        self.auto_phase = 0
-        self._auto_active_phase = None
-        self._auto_download_only = False
         self.auto_button = None
         self.overlay_configs = {}
         self._last_download_percent = None
@@ -570,7 +553,7 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout(); header.addWidget(brand); header.addWidget(eyebrow); header.addStretch(1); header.addWidget(self.version_label); header.addWidget(QPushButton("Cài đặt / Đăng nhập"))
         self.folder_label = QLabel("Chưa chọn thư mục tổng"); self.folder_label.setObjectName("muted")
         choose = QPushButton("Chọn thư mục"); choose.clicked.connect(self.choose_folder)
-        auto = QPushButton("Chạy tự động  ·  0 phim"); auto.setObjectName("primary"); auto.clicked.connect(self.auto_run)
+        auto = QPushButton("Chạy tự động"); auto.setObjectName("primary"); auto.clicked.connect(self.auto_run)
         self.auto_button = auto
         folder_bar = QFrame(); folder_bar.setObjectName("bar")
         top = QHBoxLayout(folder_bar); top.addWidget(QLabel("THƯ MỤC TỔNG")); top.addWidget(self.folder_label, 1); top.addWidget(choose); top.addWidget(auto)
@@ -1358,8 +1341,8 @@ class MainWindow(QMainWindow):
         task_labels = {
             export_folder: "Xuất video", translate_srt_batch: "Dịch phụ đề",
             create_srt_batch: "Tạo SRT", separate_folder: "Tách vocal",
-            mux_folder: "Ghép vocal", run_download_and_auto_pipeline: "Tải video",
-            download_multiple: "Tải video",
+            mux_folder: "Ghép vocal", run_download_and_auto_pipeline: "Quy trình tự động",
+            download_multiple: "Tải video", run_auto_pipeline: "Quy trình tự động",
         }
         self._active_task_label = task_labels.get(task, getattr(task, "__name__", "Quy trình"))
         self.log_view.clear()
@@ -1467,45 +1450,7 @@ class MainWindow(QMainWindow):
         self.log_view.clear()
         self.log_view.append(f"[Hoàn tất] {label}: {self.root.name}")
         self.log_view.ensureCursorVisible()
-        if self._auto_active_phase is not None:
-            finished_phase = self._auto_active_phase
-            self._auto_active_phase = None
-            if self._auto_download_only:
-                self._auto_download_only = False
-                self.auto_phase = finished_phase
-                self._set_auto_button(
-                    "Chạy tự động · tiếp tục xuất" if finished_phase == 2
-                    else "Chạy tự động · tiếp tục tạo SRT"
-                )
-                self.status.setText("Đã tải xong link mới; vẽ khung OCR rồi bấm tiếp.")
-            elif finished_phase == 0:
-                has_post_steps = any(
-                    self.auto_plan.get(key) for key in ("concat", "rename", "separate")
-                )
-                if has_post_steps:
-                    self.auto_phase = 1
-                    self.status.setText("Đã dừng trước tạo SRT; hãy thêm khung OCR cho từng video.")
-                    self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
-                else:
-                    # Only videos were fetched. Clear the plan so the next
-                    # "Chạy tự động" click reopens the step picker.
-                    self.auto_plan = None
-                    self.auto_phase = 0
-                    self.status.setText("Đã tải xong. Bấm Chạy tự động để chọn các bước xử lý.")
-                    self._set_auto_button("Chạy tự động  ·  0 phim")
-            elif finished_phase == 1:
-                self.auto_phase = 2
-                self.ocr_region_item.hide()
-                self.ocr_region_button.setChecked(False)
-                current = self.movies.currentItem()
-                if current is not None:
-                    self._select_preview_video(current)
-                self.status.setText("Đã dừng trước xuất; hãy căn sub Anh và Blur.")
-                self._set_auto_button("Chạy tự động · tiếp tục xuất")
-            else:
-                self.auto_plan = None
-                self.auto_phase = 0
-                self._set_auto_button("Chạy tự động  ·  0 phim")
+        self._set_auto_button("Chạy tự động")
         self._release_completed_task()
 
     def task_failed(self, error):
@@ -1514,10 +1459,7 @@ class MainWindow(QMainWindow):
         self.status.setText("Lỗi")
         self.write_log(f"[V3] LỖI: {error}")
         self._write_bug_report(error)
-        if self._auto_active_phase is not None:
-            self._auto_active_phase = None
-            self._auto_download_only = False
-            self._set_auto_button("Chạy tự động · thử lại bước hiện tại")
+        self._set_auto_button("Chạy tự động")
         self._release_completed_task()
         QMessageBox.critical(self, "Lỗi pipeline", error)
 
@@ -1582,88 +1524,46 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _run_auto_phase(self):
-        if not self.auto_plan:
+    def auto_run(self):
+        try:
+            busy = bool(self.thread and self.thread.isRunning())
+        except RuntimeError:
+            busy = False
+        if busy:
+            self.status.setText("Đang chạy tác vụ khác; hãy đợi hoàn tất.")
             return
-        phase = self.auto_phase
-        self._auto_active_phase = phase
-        self._set_auto_button("Đang chạy tự động..." )
-        # Download links queued after the pipeline already passed the download
-        # phase: fetch just those files and stay on the current phase. Adding
-        # more parts must not be blocked by the OCR-region gate for the SRT phase.
-        if phase != 0 and self.pending_download_links and self.auto_plan.get("download"):
+        if self.root == Path.cwd() or not self.root.exists():
+            QMessageBox.warning(self, "Chưa chọn thư mục",
+                                "Hãy chọn thư mục tổng trước khi chạy tự động.")
+            return
+        dialog = AutoProcessDialog(bool(self.pending_download_links), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        steps = dialog.values()
+        if not any(steps.values()):
+            self.status.setText("Chưa chọn bước nào để chạy.")
+            return
+        # OCR-based SRT needs a per-video ROI; block only this run until drawn.
+        if steps.get("srt") and not self._auto_ocr_regions_ready():
+            return
+        regions = {
+            path: list(config["ocr_roi"])
+            for path, config in self.overlay_configs.items()
+            if config.get("ocr_roi")
+        } or None
+        overlay_configs = (
+            {path: dict(config) for path, config in self.overlay_configs.items()}
+            if steps.get("export") else None
+        )
+        self._set_auto_button("Đang chạy tự động...")
+        if steps.get("download") and self.pending_download_links:
             urls, dfn = self.pending_download_links, self.pending_download_dfn
             self.pending_download_links = []
-            self._auto_download_only = True
-            self._set_auto_button("Đang tải link mới...")
-            self.start_task(download_multiple, urls, dfn_priority=dfn,
-                            output_dir=str(self.root))
-            return
-        if phase == 0:
-            steps = {
-                "download": bool(self.auto_plan.get("download")),
-                "concat": bool(self.auto_plan.get("concat")),
-                "rename": bool(self.auto_plan.get("rename")),
-                "separate": bool(self.auto_plan.get("separate")),
-                "srt": False, "translate": False, "mux": False, "export": False,
-            }
-            if self.pending_download_links and steps["download"]:
-                urls, dfn = self.pending_download_links, self.pending_download_dfn
-                self.pending_download_links = []
-                self.start_task(run_download_and_auto_pipeline, str(self.root), urls, dfn, steps)
-            elif any(steps.get(key) for key in ("concat", "rename", "separate")):
-                self.start_task(run_auto_pipeline, str(self.root), steps)
-            else:
-                self._auto_active_phase = None
-                self.auto_phase = 1
-                self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
-        elif phase == 1:
-            if not self._auto_ocr_regions_ready():
-                self._auto_active_phase = None
-                self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
-                return
-            dialog = SrtTranslateProcessDialog(self)
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                self._auto_active_phase = None
-                self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
-                return
-            run_srt, run_translate = dialog.values()
-            if not run_srt and not run_translate:
-                self._auto_active_phase = None
-                self.status.setText("Chưa chọn bước Quét SRT hoặc Dịch SRT")
-                self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
-                return
-            steps = {"download": False, "separate": False, "srt": run_srt,
-                     "translate": run_translate,
-                     "mux": False, "export": False}
-            regions = {
-                path: list(config["ocr_roi"])
-                for path, config in self.overlay_configs.items()
-                if config.get("ocr_roi")
-            }
-            self.start_task(run_auto_pipeline, str(self.root), steps, ocr_regions=regions)
+            self.start_task(run_download_and_auto_pipeline, str(self.root), urls, dfn,
+                            steps, ocr_regions=regions, overlay_configs=overlay_configs)
         else:
-            steps = {"download": False, "separate": False, "srt": False,
-                     "translate": False, "mux": False,
-                     "export": bool(self.auto_plan.get("export"))}
-            if steps["export"]:
-                self.start_task(run_auto_pipeline, str(self.root), steps,
-                                overlay_configs={path: dict(config) for path, config in self.overlay_configs.items()})
-            else:
-                self.auto_plan = None
-                self._set_auto_button("Chạy tự động  ·  0 phim")
-
-    def auto_run(self):
-        if self._auto_active_phase is not None:
-            self.status.setText("Tự động đang chạy; hãy đợi bước hiện tại hoàn tất.")
-            return
-        if self.auto_plan is None:
-            dialog = AutoProcessDialog(bool(self.pending_download_links), self)
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                return
-            self.auto_plan = dialog.values()
-            self.auto_phase = 0
-        self._run_auto_phase()
+            self.start_task(run_auto_pipeline, str(self.root), steps,
+                            ocr_regions=regions, overlay_configs=overlay_configs)
 
     def create_srt(self):
         if self.root == Path.cwd() or not self.root.exists():
