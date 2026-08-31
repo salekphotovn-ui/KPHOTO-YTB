@@ -11,7 +11,7 @@ from pathlib import Path
 # The executable ships on the release matching the app VERSION; the heavy
 # bin/models/runtime payloads rarely change and stay on RUNTIME_TAG so a
 # bug-fix release only needs a fresh KPHOTO-YTB_update.zip re-uploaded.
-APP_TAG = "v0.3.3"
+APP_TAG = "v0.3.4"
 RUNTIME_TAG = "v0.3.2"
 _BASE = "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download"
 
