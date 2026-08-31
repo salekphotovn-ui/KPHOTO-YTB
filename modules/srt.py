@@ -11,7 +11,7 @@ import sys
 import shutil
 import tempfile
 from pathlib import Path
-from config import FFMPEG_PATH
+from config import FFMPEG_PATH, app_dir
 
 
 _WHISPER_MODEL = None
@@ -127,9 +127,14 @@ def _run_kphoto_local(audio_path: Path, log_callback) -> dict:
         return _run_srt_native(audio_path, "kphoto-local", log_callback)
     from funasr import AutoModel
 
-    roots = [
+    # A frozen build reports __file__ under _internal, while the Setup extracts
+    # KPHOTO-YTB_models.zip next to the executable. Check both layouts plus the
+    # source tree.
+    candidate_roots = [
         Path(__file__).resolve().parents[1] / "models" / "kphoto-local" / "zh",
+        app_dir() / "models" / "kphoto-local" / "zh",
     ]
+    roots = list(dict.fromkeys(candidate_roots))
     model_root = next((root for root in roots if (root / "zh" / "model.pt").is_file()), None)
     if model_root is None:
         raise RuntimeError("Chua co model KPHOTO-Local tieng Trung.")
