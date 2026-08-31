@@ -81,6 +81,10 @@ def _cool_model(name: str, seconds: float) -> None:
         )
 
 
+_PING_POOL = ThreadPoolExecutor(max_workers=4)
+_HEALTH_DEADLINE = 15  # hard wall-clock cap on one health-check ping
+
+
 def _ping_model(base_url: str, api_key: str, name: str) -> bool:
     """A cheap request to see whether a pool model is actually answering."""
     try:
@@ -92,7 +96,7 @@ def _ping_model(base_url: str, api_key: str, name: str) -> bool:
                 "messages": [{"role": "user", "content": "Reply with the single word OK"}],
                 "max_tokens": 8, "temperature": 0, "stream": False,
             },
-            timeout=(10, 12),
+            timeout=(10, _HEALTH_DEADLINE),
         )
     except requests.RequestException:
         return False
@@ -110,8 +114,10 @@ def _ping_model(base_url: str, api_key: str, name: str) -> bool:
 
 
 def _prewarm_pool(api_key: str, log=None) -> None:
-    """Ping models in priority order until one answers, parking the dead ones
-    ahead of it so the first real batch does not eat their timeout."""
+    """Ping models in priority order until one answers within a hard time cap,
+    parking the dead / too-slow ones ahead of it so the first real batch does
+    not eat their timeout. The proxy trickles bytes when its upstream hangs, so
+    requests' own read timeout is not enough - run each ping under a wall clock."""
     base_url = _proxy_base_url()
     models = _proxy_models()
     if not base_url or not api_key or len(models) < 2:
@@ -119,13 +125,18 @@ def _prewarm_pool(api_key: str, log=None) -> None:
     for name in models:
         if not _model_ready(name):
             continue
-        if _ping_model(base_url, api_key, name):
+        future = _PING_POOL.submit(_ping_model, base_url, api_key, name)
+        try:
+            healthy = future.result(timeout=_HEALTH_DEADLINE + 3)
+        except Exception:
+            healthy = False  # timed out; the worker finishes on its own later
+        if healthy:
             if log and name != models[0]:
                 log(f"[TranslateModel] health-check: bắt đầu từ {name}")
             return
         _cool_model(name, 150)
         if log:
-            log(f"[TranslateModel] {name} không đạt health-check, tạm bỏ 150s")
+            log(f"[TranslateModel] {name} chậm/lỗi ở health-check, tạm bỏ 150s")
 
 
 def _translation_signature(cues: list[dict], model: str, target: str) -> str:
