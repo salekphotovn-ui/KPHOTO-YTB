@@ -8,6 +8,19 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 
+_BUNDLED_OCR_MODELS = {
+    "Det.model_path": "PP-OCRv6_det_small.onnx",
+    "Cls.model_path": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+    "Rec.model_path": "PP-OCRv6_rec_small.onnx",
+}
+
+
+def _bundled_rapidocr_models_dir() -> Path:
+    """Return bundled OCR model directory when running from PyInstaller."""
+    bundle = Path(getattr(__import__("sys"), "_MEIPASS", Path(__file__).resolve().parents[1]))
+    return bundle / "rapidocr" / "models"
+
+
 _OCR_ENGINE = None
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 _SPACE_RE = re.compile(r"\s+")
@@ -59,6 +72,10 @@ def _load_engine(log_callback):
         "Global.log_level": "error",
         "EngineConfig.onnxruntime.use_cuda": use_cuda,
     }
+    model_dir = _bundled_rapidocr_models_dir()
+    bundled_paths = {key: model_dir / name for key, name in _BUNDLED_OCR_MODELS.items()}
+    if all(path.is_file() for path in bundled_paths.values()):
+        params.update({key: str(path) for key, path in bundled_paths.items()})
     _OCR_ENGINE = RapidOCR(params=params)
     try:
         providers = _OCR_ENGINE.text_det.session.session.get_providers()
