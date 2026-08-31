@@ -1236,6 +1236,28 @@ class MainWindow(QMainWindow):
             percent = max(0, min(100, int(separator_match.group(1))))
             self.progress.setValue(percent)
             return
+        sep_alldone = re.search(
+            r"\[SeparateProgress\]\s+ALLDONE\s+folder=(.+?)\s+ok=(\d+)\s+total=(\d+)\s*$", text
+        )
+        if sep_alldone:
+            folder, ok, total = sep_alldone.group(1), int(sep_alldone.group(2)), int(sep_alldone.group(3))
+            failed = total - ok
+            if total == 0:
+                self.log_view.append(f"Không có file .mp4 nào cần tách trong '{folder}'.")
+            else:
+                self.log_view.append(f"Đã tách vocal toàn bộ '{folder}': {ok}/{total} file.")
+                self.log_view.append(
+                    "Không có file nào lỗi." if failed == 0 else f"Có {failed} file lỗi:"
+                )
+            self.log_view.ensureCursorVisible()
+            return
+        sep_err = re.search(r"\[SeparateProgress\]\s+ERRITEM\s+(.+?)\s+::\s+(.*)$", text)
+        if sep_err:
+            self.log_view.append(f"  ❌ {sep_err.group(1)} — {sep_err.group(2)}")
+            self.log_view.ensureCursorVisible()
+            return
+        if re.match(r"\[SeparateProgress\]\s+FAIL\s+\d+/\d+\s", text):
+            return  # summarised in the ALLDONE / ERRITEM block at the end
         chunk_match = re.search(r"\[SrtProgress\]\s+CHUNK\s+(\d+)\/(\d+)", text, re.IGNORECASE)
         if chunk_match:
             current, total = int(chunk_match.group(1)), max(1, int(chunk_match.group(2)))

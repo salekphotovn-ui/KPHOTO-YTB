@@ -815,19 +815,11 @@ def separate_folder(folder_path: str, model: str = SEPARATOR_MODEL,
             _log(f"[SeparateProgress] DONE {count}/{total} {file}")
         except Exception as e:
             errors.append((file, str(e)))
-            _log(f"[SeparateProgress] FAIL {count}/{total} {file}")
-            _log(f"❌ Lỗi khi tách '{file}': {e}")
+            _log(f"[SeparateProgress] FAIL {count}/{total} {file} :: {e}")
 
-    if total == 0:
-        _log("⚠️ Không tìm thấy file .mp4 nào cần xử lý trong thư mục này.")
-    else:
-        _log(f"\n✅ Đã tách xong {len(results)}/{total} file.")
-
-    if errors:
-        _log(f"\n⚠️ ============ CÓ {len(errors)} VIDEO BỊ LỖI ============")
-        for file, err_msg in errors:
-            _log(f"  ❌ {file}")
-            _log(f"     Lỗi: {err_msg}")
-        _log("=" * 50)
+    folder_name = os.path.basename(os.path.normpath(folder_path))
+    _log(f"[SeparateProgress] ALLDONE folder={folder_name} ok={len(results)} total={total}")
+    for file, err_msg in errors:
+        _log(f"[SeparateProgress] ERRITEM {file} :: {err_msg}")
 
     return results
