@@ -245,7 +245,20 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str, 
                 emit(f"[TranslateModel] {name} lỗi mạng, đổi endpoint")
                 continue
             if response.ok:
-                data = response.json() if response.text.strip() else {}
+                try:
+                    data = response.json() if response.text.strip() else {}
+                except ValueError:
+                    data = {}
+                # A broken upstream (e.g. rcloud) answers HTTP 200 with an error
+                # envelope after a long hang. Treat it like a 5xx: park the model
+                # for a while so the rest of the run skips it.
+                if isinstance(data, dict) and (data.get("error") or data.get("type") == "error"):
+                    err = data.get("error") or {}
+                    msg = err.get("message") if isinstance(err, dict) else str(err)
+                    last_error = f"{name}: 200-lỗi {str(msg)[:120]}"
+                    _cool_model(name, 180)
+                    emit(f"[TranslateModel] {name} upstream lỗi, đổi endpoint")
+                    continue
                 choices = data.get("choices") or []
                 message = choices[0].get("message", {}) if choices else {}
                 text = message.get("content", "") if isinstance(message, dict) else ""
@@ -257,7 +270,7 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str, 
                         emit(f"[TranslateModel] dùng {name} ({len(parsed)} câu)")
                     return parsed
                 last_error = f"{name}: nội dung rỗng / không đọc được JSON"
-                _cool_model(name, 10)
+                _cool_model(name, 45)
                 continue
             body = response.text[:400]
             low = body.lower()
