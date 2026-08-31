@@ -81,6 +81,53 @@ def _cool_model(name: str, seconds: float) -> None:
         )
 
 
+def _ping_model(base_url: str, api_key: str, name: str) -> bool:
+    """A cheap request to see whether a pool model is actually answering."""
+    try:
+        response = requests.post(
+            f"{base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": name,
+                "messages": [{"role": "user", "content": "Reply with the single word OK"}],
+                "max_tokens": 8, "temperature": 0, "stream": False,
+            },
+            timeout=(10, 12),
+        )
+    except requests.RequestException:
+        return False
+    if not response.ok:
+        return False
+    try:
+        data = response.json() if response.text.strip() else {}
+    except ValueError:
+        return False
+    if not isinstance(data, dict) or data.get("error") or data.get("type") == "error":
+        return False
+    choices = data.get("choices") or []
+    message = choices[0].get("message", {}) if choices else {}
+    return bool(str(message.get("content", "")).strip())
+
+
+def _prewarm_pool(api_key: str, log=None) -> None:
+    """Ping models in priority order until one answers, parking the dead ones
+    ahead of it so the first real batch does not eat their timeout."""
+    base_url = _proxy_base_url()
+    models = _proxy_models()
+    if not base_url or not api_key or len(models) < 2:
+        return
+    for name in models:
+        if not _model_ready(name):
+            continue
+        if _ping_model(base_url, api_key, name):
+            if log and name != models[0]:
+                log(f"[TranslateModel] health-check: bắt đầu từ {name}")
+            return
+        _cool_model(name, 150)
+        if log:
+            log(f"[TranslateModel] {name} không đạt health-check, tạm bỏ 150s")
+
+
 def _translation_signature(cues: list[dict], model: str, target: str) -> str:
     payload = {
         "model": model,
@@ -342,6 +389,11 @@ def translate_srt_batch(
     target_name = language_names.get(target_language, target_language)
     source_names = {"zh": "Chinese", "en": "English", "vi": "Vietnamese", "ja": "Japanese", "ko": "Korean", "th": "Thai"}
     source_name = source_names.get(source_language, "Chinese")
+
+    try:
+        _prewarm_pool(api_key, log=log)
+    except Exception:
+        pass
 
     for source_path in source_files:
         cues = _read_srt(source_path)
