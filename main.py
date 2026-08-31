@@ -508,7 +508,7 @@ class MainWindow(QMainWindow):
         self._updating_ocr_region = False
         self._updating_blur_region = False
         self._last_preview_frame_image = None
-        self.setWindowTitle("KPHOTO-YTB - Video Workspace")
+        self.setWindowTitle(f"KPHOTO-YTB v{VERSION} - Video Workspace")
         self.resize(1200, 780)
         self._build_ui_v3()
         QTimer.singleShot(1500, self._check_for_update)
@@ -520,6 +520,7 @@ class MainWindow(QMainWindow):
             return
         tag = str(release.get("tag_name", "")).lstrip("v")
         if tag and tag != VERSION:
+            self.version_label.setText(f"v{VERSION} → có bản mới v{tag}")
             self.status.setText(f"Có bản cập nhật KPHOTO-YTB {tag}")
             self.write_log(f"[Update] Có bản mới {tag}: {release.get('html_url', '')}")
             assets = release.get("assets") or []
@@ -564,7 +565,8 @@ class MainWindow(QMainWindow):
         """)
         brand = QLabel("KPHOTO-YTB"); brand.setObjectName("brand")
         eyebrow = QLabel("VIDEO WORKSPACE / V3"); eyebrow.setObjectName("eyebrow")
-        header = QHBoxLayout(); header.addWidget(brand); header.addWidget(eyebrow); header.addStretch(1); header.addWidget(QPushButton("Cài đặt / Đăng nhập"))
+        self.version_label = QLabel(f"v{VERSION}"); self.version_label.setObjectName("muted")
+        header = QHBoxLayout(); header.addWidget(brand); header.addWidget(eyebrow); header.addStretch(1); header.addWidget(self.version_label); header.addWidget(QPushButton("Cài đặt / Đăng nhập"))
         self.folder_label = QLabel("Chưa chọn thư mục tổng"); self.folder_label.setObjectName("muted")
         choose = QPushButton("Chọn thư mục"); choose.clicked.connect(self.choose_folder)
         auto = QPushButton("Chạy tự động  ·  0 phim"); auto.setObjectName("primary"); auto.clicked.connect(self.auto_run)
