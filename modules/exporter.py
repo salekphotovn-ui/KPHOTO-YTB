@@ -77,10 +77,48 @@ def _video_height(video_path: Path) -> int:
     return 480
 
 
+def _hex_to_ass_colour(value: str) -> str:
+    """Convert a "#RRGGBB" preview colour into an ASS "&HAABBGGRR" literal."""
+    text = str(value or "").strip().lstrip("#")
+    if len(text) == 3:
+        text = "".join(char * 2 for char in text)
+    if len(text) != 6:
+        return "&H00FFFFFF"
+    try:
+        red = int(text[0:2], 16)
+        green = int(text[2:4], 16)
+        blue = int(text[4:6], 16)
+    except ValueError:
+        return "&H00FFFFFF"
+    return f"&H00{blue:02X}{green:02X}{red:02X}"
+
+
+def _subtitle_force_style(subtitle_style, top_margin_ratio: float) -> str:
+    """Build the libass force_style string from the preview font settings."""
+    style = subtitle_style if isinstance(subtitle_style, dict) else {}
+    family = str(style.get("family") or "Arial").strip() or "Arial"
+    family = family.replace(",", " ").replace("{", "").replace("}", "").strip()
+    try:
+        preview_size = float(style.get("size", 22) or 22)
+    except (TypeError, ValueError):
+        preview_size = 22.0
+    # The preview label defaults to 22 px; the exported ASS canvas defaults to
+    # FontSize 16 on PlayResY 288. Scale proportionally so the default is
+    # unchanged and a bigger preview size yields a bigger burned-in cue.
+    ass_font_size = max(6, round(16 * preview_size / 22))
+    colour = _hex_to_ass_colour(style.get("color", "#FFFFFF"))
+    margin_v = max(0, round(288 * max(0.0, top_margin_ratio) - ass_font_size / 2))
+    return (
+        f"FontName={family},FontSize={ass_font_size},"
+        f"PrimaryColour={colour},OutlineColour=&H00000000,"
+        f"Outline=2,Shadow=0,Alignment=2,MarginV={margin_v}"
+    )
+
+
 def _build_filter(
     video_path: Path, blur_boxes: list[list[float]], logo_path: str,
     subtitle_y_ratio: float = 0.86, logo_box: list[float] | None = None,
-    blur_strength: int = 12,
+    blur_strength: int = 12, subtitle_style=None,
 ) -> str:
     chains = ["[0:v]setpts=PTS-STARTPTS[base]"]
     current = "[base]"
@@ -120,14 +158,13 @@ def _build_filter(
         # MarginV is expressed in that script space, not in source-video
         # pixels. Passing a 1080p pixel margin made a preview position near the
         # bottom jump into the middle of the exported video. The preview stores
-        # the subtitle centre, so subtract half the ASS font height as well.
-        ass_play_res_y = 288
-        ass_font_size = 16
-        margin_v = max(
-            0,
-            round(ass_play_res_y * (1.0 - subtitle_y_ratio) - ass_font_size / 2),
+        # the subtitle centre, so _subtitle_force_style subtracts half the ASS
+        # font height as well. FontName/FontSize/PrimaryColour come from the
+        # per-video "Font" dialog captured in the preview.
+        force_style = _subtitle_force_style(subtitle_style, 1.0 - subtitle_y_ratio)
+        chains.append(
+            f"{current}subtitles='{subtitle_expr}':force_style='{force_style}'[vout]"
         )
-        chains.append(f"{current}subtitles='{subtitle_expr}':force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=0,Alignment=2,MarginV={margin_v}'[vout]")
         current = "[vout]"
     if current != "[vout]":
         chains.append(f"{current}null[vout]")
@@ -141,6 +178,7 @@ def export_video(
     subtitle_y_ratio: float = 0.86,
     logo_box: list[float] | None = None,
     blur_strength: int = 12,
+    subtitle_style=None,
     log_callback=None,
     progress_callback=None,
 ) -> str:
@@ -148,7 +186,8 @@ def export_video(
     output = source.with_name(f"{source.stem}_Export.mp4")
     blur_boxes = blur_boxes or []
     filters = _build_filter(
-        source, blur_boxes, logo_path, subtitle_y_ratio, logo_box, blur_strength
+        source, blur_boxes, logo_path, subtitle_y_ratio, logo_box, blur_strength,
+        subtitle_style,
     )
     encoder = _encoder()
     vocal = _local_vocal_path(source)
@@ -256,6 +295,7 @@ def export_folder(
             video_subtitle_y = config.get("subtitle_y_ratio", 0.86)
             video_logo_box = config.get("logo_box")
             video_blur_strength = config.get("blur_strength", 12)
+            video_subtitle_style = config.get("subtitle_style")
             def overall_progress(value, current=index):
                 if progress_callback:
                     progress_callback(
@@ -270,6 +310,7 @@ def export_folder(
                 subtitle_y_ratio=video_subtitle_y,
                 logo_box=video_logo_box,
                 blur_strength=video_blur_strength,
+                subtitle_style=video_subtitle_style,
                 log_callback=log_callback,
                 progress_callback=overall_progress,
             ))
