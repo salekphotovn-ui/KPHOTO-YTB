@@ -1479,9 +1479,20 @@ class MainWindow(QMainWindow):
                 )
                 self.status.setText("Đã tải xong link mới; vẽ khung OCR rồi bấm tiếp.")
             elif finished_phase == 0:
-                self.auto_phase = 1
-                self.status.setText("Đã dừng trước tạo SRT; hãy thêm khung OCR cho từng video.")
-                self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
+                has_post_steps = any(
+                    self.auto_plan.get(key) for key in ("concat", "rename", "separate")
+                )
+                if has_post_steps:
+                    self.auto_phase = 1
+                    self.status.setText("Đã dừng trước tạo SRT; hãy thêm khung OCR cho từng video.")
+                    self._set_auto_button("Chạy tự động · tiếp tục tạo SRT")
+                else:
+                    # Only videos were fetched. Clear the plan so the next
+                    # "Chạy tự động" click reopens the step picker.
+                    self.auto_plan = None
+                    self.auto_phase = 0
+                    self.status.setText("Đã tải xong. Bấm Chạy tự động để chọn các bước xử lý.")
+                    self._set_auto_button("Chạy tự động  ·  0 phim")
             elif finished_phase == 1:
                 self.auto_phase = 2
                 self.ocr_region_item.hide()
