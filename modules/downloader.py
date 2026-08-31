@@ -2,10 +2,22 @@
 import os
 import re
 import subprocess
+import threading
+import time
 from pathlib import Path
 from config import BBDOWN_PATH, DOWNLOAD_DIR, DEFAULT_DFN_PRIORITY
 
 BBDOWN_DIR = os.path.dirname(BBDOWN_PATH)
+
+# BBDown 1.6.3 only renders its progress bar on a real console; when its stdout
+# is a pipe (as it is here) it prints no percentage at all. Progress is instead
+# derived by polling the size of the files BBDown writes into the work dir and
+# comparing against the "~NNN MB" estimates it prints for the selected streams.
+_SIZE_RE = re.compile(r"~\s*([\d.]+)\s*([KMG])B", re.IGNORECASE)
+_UNIT_SCALE = {"K": 1024, "M": 1024 * 1024, "G": 1024 * 1024 * 1024}
+_PHASE_HINTS = ("下载", "合并", "完成", "多线程",
+                "error", "failed", "warning", "exception")
+
 
 class AuthenticationRequired(RuntimeError):
     pass
@@ -27,6 +39,16 @@ def bbdown_login(log_callback=None):
 def _snapshot(root):
     return {str(p.resolve()): p.stat().st_size for p in Path(root).rglob("*.mp4") if p.is_file()}
 
+def _tree_bytes(root):
+    total = 0
+    for p in Path(root).rglob("*"):
+        try:
+            if p.is_file():
+                total += p.stat().st_size
+        except OSError:
+            pass
+    return total
+
 def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
                    output_dir: str = None, log_callback=None,
                    progress_index: int = 1, progress_total: int = 1) -> list[str]:
@@ -35,21 +57,22 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     def log(msg):
         (log_callback or print)(msg)
     before = _snapshot(output_dir)
+    baseline_bytes = _tree_bytes(output_dir)
     cmd = [BBDOWN_PATH, url, "--work-dir", output_dir,
            "--dfn-priority", dfn_priority, "--force-http", "--multi-thread"]
     log("[BBDown] Dùng BBDown 1.6.3 (multi-thread, force-http)")
     log(f"[BBDown] Đang tải link {progress_index}/{progress_total}")
     process = subprocess.Popen(cmd, cwd=BBDOWN_DIR, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=False, bufsize=0)
-    pending = ""
-    while True:
-        chunk = process.stdout.read(4096) if process.stdout else b""
-        if not chunk:
-            if pending:
-                line, pending = pending, ""
-            else:
+
+    recent_sizes: list[int] = []
+
+    def _drain():
+        pending = ""
+        while True:
+            chunk = process.stdout.read(4096) if process.stdout else b""
+            if not chunk:
                 break
-        else:
             pending += chunk.decode("utf-8", errors="replace")
             parts = re.split(r"[\r\n]", pending)
             pending = parts.pop()
@@ -57,34 +80,51 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
                 line = line.strip()
                 if not line:
                     continue
+                for value, unit in _SIZE_RE.findall(line):
+                    try:
+                        recent_sizes.append(int(float(value) * _UNIT_SCALE[unit.upper()]))
+                    except (ValueError, KeyError):
+                        pass
                 safe = re.sub(r"https?://\S+", "[CDN URL]", line)
-                if len(safe) > 300: safe = safe[:300] + "..."
-                m = re.search(r"(\d{1,3})\s*%", line)
-                if m:
-                    speed = ""
-                    speed_match = re.search(r"[-|]\s*([\d.]+\s*[KMG]?B/s)", line, re.I)
-                    if speed_match: speed = f" speed={speed_match.group(1)}"
-                    log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent={m.group(1)}{speed}")
-                elif any(x in line.lower() for x in ("error", "failed", "warning", "download")):
+                if len(safe) > 300:
+                    safe = safe[:300] + "..."
+                if any(hint in line.lower() if hint.isascii() else hint in line
+                       for hint in _PHASE_HINTS):
                     log(f"[BBDown] {safe}")
-            continue
-        line = line.strip()
-        if not line:
-            continue
-        safe = re.sub(r"https?://\S+", "[CDN URL]", line)
-        if len(safe) > 300: safe = safe[:300] + "..."
-        m = re.search(r"(\d{1,3})\s*%", line)
-        if m:
-            speed = ""
-            speed_match = re.search(r"[-|]\s*([\d.]+\s*[KMG]?B/s)", line, re.I)
-            if speed_match:
-                speed = f" speed={speed_match.group(1)}"
-            log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent={m.group(1)}{speed}")
-        elif any(x in line.lower() for x in ("error", "failed", "warning", "download")):
-            log(f"[BBDown] {safe}")
-    process.wait()
+        try:
+            process.stdout.close()
+        except Exception:
+            pass
+
+    reader = threading.Thread(target=_drain, daemon=True)
+    reader.start()
+
+    log(f"[DownloadProgress] START i={progress_index} total={progress_total}")
+    last_bytes, last_time, last_pct = 0, time.monotonic(), -1
+    while process.poll() is None:
+        time.sleep(1.0)
+        got = max(0, _tree_bytes(output_dir) - baseline_bytes)
+        expected = sum(recent_sizes[-2:]) if len(recent_sizes) >= 2 else 0
+        now = time.monotonic()
+        speed = ""
+        if now > last_time and got >= last_bytes:
+            rate = (got - last_bytes) / (now - last_time)
+            if rate > 0:
+                speed = f" speed={rate / (1024 * 1024):.2f} MB/s"
+        last_bytes, last_time = got, now
+        if expected > 0:
+            pct = max(1, min(99, int(got * 100 / expected)))
+            if pct != last_pct:
+                last_pct = pct
+                log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent={pct}{speed}")
+        elif got > 0:
+            log(f"[BBDown] Đã tải {got / (1024 * 1024):.1f} MB{speed}")
+
+    reader.join(timeout=5)
     if process.returncode != 0:
         raise RuntimeError(f"BBDown thoát với mã lỗi {process.returncode}")
+    log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent=100")
+    log(f"[DownloadProgress] DONE i={progress_index} total={progress_total}")
     after = _snapshot(output_dir)
     files = [p for p, size in after.items() if before.get(p) != size]
     if not files:

@@ -1277,7 +1277,13 @@ class MainWindow(QMainWindow):
         elif "[DownloadProgress] DONE" in text:
             self.progress.setValue(100)
             self._last_download_percent = 100
-        elif text.startswith("[BBDown]") or "[DownloadProgress] START" in text:
+        elif text.startswith("[BBDown]"):
+            low = text.lower()
+            if "lỗi" in low or "error" in low or "đã tải" in low or "tải xong" in low:
+                self.log_view.append("[Tải] " + text.split("]", 1)[-1].strip())
+                self.log_view.ensureCursorVisible()
+            return
+        elif "[DownloadProgress] START" in text:
             return
         elif text.startswith("[TranslateProgress]"):
             if text.upper().startswith("[TRANSLATEPROGRESS] START") and self.progress.value() == 0:
