@@ -87,18 +87,27 @@ def _choose_chunk_duration(log) -> int:
 
 
 def _separator_executable() -> str:
-    """Find the V3 audio-separator executable inside its own Python environment."""
+    """Locate the audio-separator CLI (source venv or frozen distribution)."""
     project_root = Path(__file__).resolve().parents[1]
-    candidates = [
-        project_root / "venv" / "Scripts" / "audio-separator.exe",
-        Path(sys.executable).with_name("audio-separator.exe"),
+    exe_dir = Path(sys.executable).resolve().parent
+    names = ("audio-separator.exe", "audio-separator")
+    roots = [
+        project_root / "venv" / "Scripts",   # source checkout
+        exe_dir,                              # next to KPHOTO-YTB.exe
+        exe_dir / "bin",                      # shipped in KPHOTO-YTB_bin.zip
+        exe_dir / "_internal",               # bundled by PyInstaller
+        exe_dir / "_internal" / "Scripts",
+        project_root,                         # _internal itself, frozen
+        project_root / "Scripts",
     ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return str(candidate)
+    for root in roots:
+        for name in names:
+            candidate = root / name
+            if candidate.is_file():
+                return str(candidate)
     raise FileNotFoundError(
-        "Không tìm thấy audio-separator trong venv của V3. "
-        "Hãy cài audio-separator[gpu] vào venv của V3."
+        "Không tìm thấy audio-separator. Bản đóng gói cần audio-separator.exe "
+        "đặt cạnh KPHOTO-YTB.exe hoặc trong thư mục bin."
     )
 
 
