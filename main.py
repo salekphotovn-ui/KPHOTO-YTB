@@ -11,6 +11,22 @@ if "--run-audio-separator" in sys.argv:
     # the packaged torch / onnxruntime are reused instead of shipping a second
     # Python environment. Strip our sentinel and hand the rest to its argparse.
     sys.argv = [sys.argv[0]] + [a for a in sys.argv[1:] if a != "--run-audio-separator"]
+    # audio_separator (via pydub) shells out to bare "ffmpeg"/"ffprobe"; the
+    # bundled binaries live in <install>/bin and are not on PATH.
+    _bin_dir = Path(sys.executable).resolve().parent / "bin"
+    if _bin_dir.is_dir():
+        os.environ["PATH"] = str(_bin_dir) + os.pathsep + os.environ.get("PATH", "")
+        _ffmpeg = _bin_dir / "ffmpeg.exe"
+        _ffprobe = _bin_dir / "ffprobe.exe"
+        if _ffmpeg.is_file():
+            os.environ.setdefault("FFMPEG_BINARY", str(_ffmpeg))
+            try:
+                from pydub import AudioSegment as _AS
+                _AS.converter = str(_ffmpeg)
+                if _ffprobe.is_file():
+                    _AS.ffprobe = str(_ffprobe)
+            except Exception:
+                pass
     from audio_separator.utils.cli import main as _audio_separator_main
     raise SystemExit(_audio_separator_main())
 

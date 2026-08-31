@@ -76,13 +76,20 @@ def _tree(base: Path, arc_base: str, skip_top: set[str] | None = None):
         yield path, f"{arc_base}/{rel.as_posix()}"
 
 
-def package() -> None:
+def package(minimal: bool = False) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
 
     _zip_files(OUT / "KPHOTO-YTB_update.zip",
                [(DIST_APP / "KPHOTO-YTB.exe", "KPHOTO-YTB.exe")])
 
     _zip_files(OUT / "KPHOTO-YTB_bin.zip", list(_tree(ROOT / "bin", "bin")))
+
+    if minimal:
+        # Only the exe + bin changed; reuse the existing runtime/model assets.
+        shutil.copy2(DIST_APP.parent / "KPHOTO-YTB_Setup.exe", OUT / "KPHOTO-YTB_Setup.exe")
+        print("  (minimal: bỏ qua models/runtime/cuda)")
+        return
+
     _zip_files(OUT / "KPHOTO-YTB_models.zip", list(_tree(ROOT / "models", "models")))
 
     _zip_files(OUT / "KPHOTO-YTB_runtime_core.zip",
@@ -114,13 +121,19 @@ def package() -> None:
 
 
 def main() -> int:
+    minimal = "--minimal" in sys.argv
     if "--package-only" not in sys.argv:
         build()
-    package()
+    package(minimal=minimal)
     assets = " ".join(f'"{p.name}"' for p in sorted(OUT.glob("*")))
     print("\nTiếp theo, chạy trong thư mục", OUT)
-    print(f'\n  gh release create v{VERSION} --target main '
-          f'--title "KPHOTO-YTB v{VERSION}" --notes "..." {assets}\n')
+    if minimal:
+        print(f'\n  gh release upload v{VERSION} {assets} --clobber\n')
+        print("  (nếu chưa có release v" + VERSION + " thì đổi 'upload' -> "
+              "'create ... --target main --title ...')")
+    else:
+        print(f'\n  gh release create v{VERSION} --target main '
+              f'--title "KPHOTO-YTB v{VERSION}" --notes "..." {assets}\n')
     return 0
 
 
