@@ -76,22 +76,31 @@ def _tree(base: Path, arc_base: str, skip_top: set[str] | None = None):
         yield path, f"{arc_base}/{rel.as_posix()}"
 
 
-def package(minimal: bool = False) -> None:
+def package(minimal: bool = False, code_only: bool = False) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
 
-    # KPHOTO-YTB_update.zip is a FULL app payload: exe + _internal (minus the
-    # never-changing torch) + bin. updater.py xcopy-merges it over the install,
-    # so any fix to code, a bundled package, a data file or a helper binary
-    # ships through the silent auto-update. Only torch and models require a
-    # reinstall, and those effectively never change.
+    # KPHOTO-YTB_update.zip is xcopy-merged over the install by updater.py.
+    #  --code-only : just the exe (all main.py/modules/*.py/config.py live in
+    #                its PYZ) + the bundled config.local.json  (~77 MB).
+    #                Use this whenever no pip package / bundled data / bin tool
+    #                changed - i.e. the usual bug fix.
+    #  default     : exe + _internal (minus torch) + bin  (~1.8 GB). Use this
+    #                only when a dependency, a data file or a bin binary changed.
     update_items = [(DIST_APP / "KPHOTO-YTB.exe", "KPHOTO-YTB.exe")]
-    update_items += list(_tree(INTERNAL, "_internal", skip_top={"torch"}))
-    update_items += list(_tree(ROOT / "bin", "bin"))
+    if code_only:
+        cfg = INTERNAL / "config.local.json"
+        if cfg.is_file():
+            update_items.append((cfg, "_internal/config.local.json"))
+    else:
+        update_items += list(_tree(INTERNAL, "_internal", skip_top={"torch"}))
+        update_items += list(_tree(ROOT / "bin", "bin"))
     _zip_files(OUT / "KPHOTO-YTB_update.zip", update_items)
 
-    if minimal:
+    if minimal or code_only:
         shutil.copy2(DIST_APP.parent / "KPHOTO-YTB_Setup.exe", OUT / "KPHOTO-YTB_Setup.exe")
-        print("  (minimal: chỉ update.zip + Setup.exe; torch/models không đổi)")
+        tag = "code-only: exe + config.local.json" if code_only else \
+              "minimal: update.zip + Setup.exe; torch/models không đổi"
+        print(f"  ({tag})")
         return
 
     _zip_files(OUT / "KPHOTO-YTB_models.zip", list(_tree(ROOT / "models", "models")))
@@ -122,16 +131,18 @@ def package(minimal: bool = False) -> None:
 
 
 def main() -> int:
-    minimal = "--minimal" in sys.argv
+    code_only = "--code-only" in sys.argv
+    minimal = "--minimal" in sys.argv or code_only
     if "--package-only" not in sys.argv:
         build()
-    package(minimal=minimal)
+    package(minimal=minimal, code_only=code_only)
     assets = " ".join(f'"{p.name}"' for p in sorted(OUT.glob("*")))
     print("\nTiếp theo, chạy trong thư mục", OUT)
     if minimal:
-        print(f'\n  gh release upload v{VERSION} {assets} --clobber\n')
-        print("  (nếu chưa có release v" + VERSION + " thì đổi 'upload' -> "
-              "'create ... --target main --title ...')")
+        print(f'\n  gh release create v{VERSION} --target main '
+              f'--title "KPHOTO-YTB v{VERSION}" --notes "..." {assets}\n')
+        print(f'  (release v{VERSION} đã tồn tại thì đổi "create ... --target main --title ..." '
+              f'-> "upload v{VERSION}" và thêm --clobber)')
     else:
         print(f'\n  gh release create v{VERSION} --target main '
               f'--title "KPHOTO-YTB v{VERSION}" --notes "..." {assets}\n')
