@@ -6,6 +6,9 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from modules.win_no_console import install as _install_no_console
+_install_no_console()
+
 from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, QSizeF, QRectF, QPointF, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QPen, QPixmap, QIcon, QFont
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
