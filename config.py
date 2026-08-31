@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 APP_NAME = "KPHOTO-YTB"
-VERSION = "0.3.5"
+VERSION = "0.3.6"
 # Release tag that hosts the large, rarely-changing bootstrap payloads
 # (bin / models / runtime). The versioned executable update is published
 # separately as KPHOTO-YTB_update.zip on the release matching VERSION.
