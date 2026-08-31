@@ -1231,15 +1231,10 @@ class MainWindow(QMainWindow):
             return
         separator_match = re.search(r"\[Separator\].*?\s(\d{1,3})%\s*\|", text, re.IGNORECASE)
         if separator_match:
+            # Only move the progress bar; the per-file start/done lines below
+            # keep the log readable without the 5%/10%/... spam.
             percent = max(0, min(100, int(separator_match.group(1))))
             self.progress.setValue(percent)
-            if percent != 0 and percent % 5 != 0:
-                return
-            last_separator = getattr(self, "_last_separator_percent", None)
-            if percent == last_separator:
-                return
-            self._last_separator_percent = percent
-            self.log_view.append(f"[Tách vocal] {percent}%")
             return
         chunk_match = re.search(r"\[SrtProgress\]\s+CHUNK\s+(\d+)\/(\d+)", text, re.IGNORECASE)
         if chunk_match:
@@ -1288,8 +1283,8 @@ class MainWindow(QMainWindow):
             return
         summary = None
         patterns = (
-            (r"\[SeparateProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang xử lý: {}"),
-            (r"\[SeparateProgress\]\s+DONE\s+\d+/\d+\s+(.+)$", "Đã xử lý xong: {}"),
+            (r"\[SeparateProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang tách vocal: {}"),
+            (r"\[SeparateProgress\]\s+DONE\s+\d+/\d+\s+(.+)$", "Đã hoàn thành tách vocal: {}"),
             (r"\[SrtProgress\]\s+ITEM\s+\d+/\d+\s+(.+)$", "Đang xử lý: {}"),
             (r"\[SrtProgress\]\s+DONE\s+\d+/\d+\s+(.+)$", "Đã xử lý xong: {}"),
             (r"\[Translate\]\s+FILM\s+(.+?)\s+total=", "Đang xử lý: {}"),
@@ -1355,7 +1350,6 @@ class MainWindow(QMainWindow):
         self._active_task_label = task_labels.get(task, getattr(task, "__name__", "Quy trình"))
         self.log_view.clear()
         self._last_download_percent = None
-        self._last_separator_percent = None
         self.progress.setValue(0)
         self.log_view.append(f"[Bắt đầu] {self._active_task_label}")
         self.thread = QThread(self)
