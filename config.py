@@ -18,8 +18,18 @@ RUNTIME_RELEASE_TAG = "v0.3.2"
 
 def load_local_provider_config() -> None:
     """Load optional machine-local API settings without committing secrets."""
-    path = Path(__file__).resolve().parent / "config.local.json"
-    if not path.is_file():
+    module_dir = Path(__file__).resolve().parent
+    # Source run: next to config.py. Frozen run: config.py lives inside
+    # _internal, so also accept the file dropped next to the executable or in
+    # _internal itself, whichever the operator used when shipping the app.
+    candidates = [
+        module_dir / "config.local.json",
+        module_dir.parent / "config.local.json",
+    ]
+    if getattr(sys, "frozen", False):
+        candidates.insert(0, Path(sys.executable).resolve().parent / "config.local.json")
+    path = next((item for item in candidates if item.is_file()), None)
+    if path is None:
         return
     try:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
