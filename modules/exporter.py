@@ -73,10 +73,23 @@ def _local_vocal_path(video_path: Path) -> Path | None:
 
 
 def _duration_seconds(video_path: Path) -> float:
+    ffprobe = Path(FFMPEG_PATH).with_name("ffprobe.exe")
+    if ffprobe.exists():
+        try:
+            result = subprocess.run(
+                [str(ffprobe), "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=nokey=1:noprint_wrappers=1", str(video_path)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+            )
+            value = float(result.stdout.strip() or 0)
+            if value > 0:
+                return value
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
     try:
         result = subprocess.run(
             [FFMPEG_PATH, "-hide_banner", "-i", str(video_path)],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", result.stderr)
         if match:
@@ -305,7 +318,10 @@ def export_video(
     duration = _duration_seconds(source)
     if log_callback:
         log_callback(f"[Export] Audio track: {vocal.name}" if vocal else "[Export] Audio track: original (no local vocal)")
-        log_callback(f"[Export] Đang xử lý: {source.name} ({encoder})")
+        if duration:
+            log_callback(f"[Export] Đang xử lý: {source.name} ({encoder}, {duration/60:.1f} phút)")
+        else:
+            log_callback(f"[Export] Đang xử lý: {source.name} ({encoder}) — không đọc được thời lượng, thanh % sẽ đứng yên")
 
     returncode, tail = _run_ffmpeg(command, duration, log_callback, progress_callback)
 

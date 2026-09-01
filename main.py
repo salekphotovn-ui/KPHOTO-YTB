@@ -58,7 +58,7 @@ from modules.updater import latest_release, download_and_install
 from config import VERSION
 
 
-def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, ocr_regions=None, overlay_configs=None):
+def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, ocr_regions=None, overlay_configs=None, progress_callback=None):
     def log(message):
         if log_callback:
             log_callback(message)
@@ -110,28 +110,35 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
         mux_folder(folder, log_callback=log_callback)
     if steps.get("export"):
         log("[AutoStage] Đang xuất video")
-        return export_folder(folder, log_callback=log_callback, overlay_configs=overlay_configs)
+        return export_folder(
+            folder, log_callback=log_callback, overlay_configs=overlay_configs,
+            progress_callback=progress_callback,
+        )
     log("[AutoStage] Đã hoàn tất các bước được chọn")
     return folder
 
 
 def run_download_and_auto_pipeline(folder: str, urls: list[str], dfn_priority: str, steps: dict[str, bool],
-                                  log_callback=None, ocr_regions=None, overlay_configs=None):
+                                  log_callback=None, ocr_regions=None, overlay_configs=None, progress_callback=None):
     if log_callback:
         log_callback(f"[AutoStage] Đang tải {len(urls)} link")
     download_multiple(urls, dfn_priority=dfn_priority, output_dir=folder, log_callback=log_callback)
     return run_auto_pipeline(folder, steps, log_callback=log_callback,
-                             ocr_regions=ocr_regions, overlay_configs=overlay_configs)
+                             ocr_regions=ocr_regions, overlay_configs=overlay_configs,
+                             progress_callback=progress_callback)
 
 
-def mux_and_export(folder: str, overlay_configs=None, log_callback=None):
+def mux_and_export(folder: str, overlay_configs=None, log_callback=None, progress_callback=None):
     """Ghép vocal local rồi xuất hiệu ứng/phụ đề trong một tác vụ."""
     if log_callback:
         log_callback("[AutoStage] Ghép vocal trước khi xuất")
     mux_folder(folder, log_callback=log_callback)
     if log_callback:
         log_callback("[AutoStage] Xuất video (blur + phụ đề)")
-    return export_folder(folder, log_callback=log_callback, overlay_configs=overlay_configs)
+    return export_folder(
+        folder, log_callback=log_callback, overlay_configs=overlay_configs,
+        progress_callback=progress_callback,
+    )
 
 
 class AutoProcessDialog(QDialog):
@@ -254,7 +261,8 @@ class TaskWorker(QObject):
         try:
             call_kwargs = dict(self.kwargs)
             call_kwargs["log_callback"] = self.log.emit
-            if self.task is export_folder:
+            if self.task in (export_folder, mux_and_export,
+                             run_auto_pipeline, run_download_and_auto_pipeline):
                 call_kwargs.setdefault("progress_callback", self.progress.emit)
             result = self.task(*self.args, **call_kwargs)
             self.done.emit(result)
