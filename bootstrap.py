@@ -11,7 +11,7 @@ from pathlib import Path
 # KPHOTO-YTB_update.zip is the full app (exe + _internal minus torch + bin) and
 # lives on APP_TAG; the auto-updater ships every fix through it. Only the
 # never-changing torch and models stay on RUNTIME_TAG.
-APP_TAG = "v0.3.9"
+APP_TAG = "v0.3.10"
 RUNTIME_TAG = "v0.3.4"
 _BASE = "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download"
 
