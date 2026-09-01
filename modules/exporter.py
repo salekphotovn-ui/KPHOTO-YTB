@@ -63,11 +63,24 @@ def _subtitle_path(video_path: Path) -> Path | None:
 
 
 def _local_vocal_path(video_path: Path) -> Path | None:
-    """Find a separated vocal track belonging to this video."""
+    """Find the separated vocal track belonging to this video.
+
+    The vocal file is named after the *original* video (``31.1_(Vocals).flac``),
+    so when we are exporting the already-muxed ``31.1_Da_Ghep_Vocal.mp4`` its
+    stem has to be trimmed back to ``31.1`` for the match to work - otherwise the
+    export silently falls through to the container's audio and the log claims
+    "original".
+    """
+    base = video_path.stem
+    for suffix in ("_Da_Ghep_Vocal", "_da_ghep_vocal"):
+        if base.casefold().endswith(suffix.casefold()):
+            base = base[: -len(suffix)]
+            break
+    base_cf = base.casefold()
     found = []
     for path in video_path.parent.iterdir():
         if path.is_file() and path.suffix.lower() in {".wav", ".flac", ".mp3", ".m4a"}:
-            if "(vocals)" in path.name.casefold() and path.stem.casefold().startswith(video_path.stem.casefold()):
+            if "(vocals)" in path.name.casefold() and path.stem.casefold().startswith(base_cf):
                 found.append(path)
     return sorted(found, key=lambda p: p.name.casefold())[0] if found else None
 
@@ -316,8 +329,14 @@ def export_video(
         command += ["-shortest"]
     command += ["-movflags", "+faststart", str(output)]
     duration = _duration_seconds(source)
+    already_muxed = source.stem.casefold().endswith("_da_ghep_vocal")
     if log_callback:
-        log_callback(f"[Export] Audio track: {vocal.name}" if vocal else "[Export] Audio track: original (no local vocal)")
+        if vocal:
+            log_callback(f"[Export] Âm thanh: vocal đã tách ({vocal.name}); bỏ tiếng gốc")
+        elif already_muxed:
+            log_callback("[Export] Âm thanh: track vocal có sẵn trong file đã ghép (tiếng gốc đã bỏ ở bước ghép)")
+        else:
+            log_callback("[Export] ⚠️ Không thấy file vocal — XUẤT BẰNG TIẾNG GỐC. Chạy 'Tách vocal' + 'Ghép vocal' trước khi xuất.")
         if duration:
             log_callback(f"[Export] Đang xử lý: {source.name} ({encoder}, {duration/60:.1f} phút)")
         else:
