@@ -14,7 +14,8 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
 
 _ERROR_HINT_RE = re.compile(
     r"error|invalid|no such file|failed|cannot|unable|not found|"
-    r"impossible|denied|conversion failed|nvenc|out of memory|killed",
+    r"impossible|denied|conversion failed|out of memory|killed|"
+    r"no space left|too small|not supported|could not",
     re.IGNORECASE,
 )
 
@@ -146,10 +147,19 @@ def _build_filter(
     chains = ["[0:v]setpts=PTS-STARTPTS[base]"]
     current = "[base]"
     blur_sigma = max(0, min(100, int(blur_strength)))
-    for index, box in enumerate(blur_boxes):
-        x, y, width, height = [max(0.0, min(1.0, float(value))) for value in box]
-        # Gaussian blur matches the soft CapCut-style effect instead of the
-        # blocky mosaic produced by downscaling and enlarging the crop.
+    index = -1
+    for box in blur_boxes:
+        try:
+            x, y, width, height = [max(0.0, min(1.0, float(value))) for value in box]
+        except (TypeError, ValueError):
+            continue
+        # A zero / negative crop size makes FFmpeg abort and write a 0-byte
+        # file, so drop degenerate boxes and keep the crop inside the frame.
+        width = min(width, 1.0 - x)
+        height = min(height, 1.0 - y)
+        if width < 0.01 or height < 0.01:
+            continue
+        index += 1
         crop = (
             f"crop=iw*{width:.6f}:ih*{height:.6f}:iw*{x:.6f}:ih*{y:.6f},"
             f"gblur=sigma={blur_sigma}:steps=4"
