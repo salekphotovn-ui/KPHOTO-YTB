@@ -47,6 +47,22 @@ def _transition_similarity(left: str, right: str) -> float:
     return SequenceMatcher(None, left, right).ratio()
 
 
+def _build_rapidocr(use_cuda: bool):
+    from rapidocr import RapidOCR
+
+    params = {
+        # Empty detection is normal between subtitle cards; keep it out of the
+        # user log and only surface genuine OCR errors.
+        "Global.log_level": "error",
+        "EngineConfig.onnxruntime.use_cuda": use_cuda,
+    }
+    model_dir = _bundled_rapidocr_models_dir()
+    bundled_paths = {key: model_dir / name for key, name in _BUNDLED_OCR_MODELS.items()}
+    if all(path.is_file() for path in bundled_paths.values()):
+        params.update({key: str(path) for key, path in bundled_paths.items()})
+    return RapidOCR(params=params)
+
+
 def _load_engine(log_callback):
     global _OCR_ENGINE
     if _OCR_ENGINE is not None:
@@ -64,19 +80,27 @@ def _load_engine(log_callback):
     except Exception:
         use_cuda = False
 
-    from rapidocr import RapidOCR
+    engine = _build_rapidocr(use_cuda)
+    if use_cuda:
+        # torch.cuda.is_available() does not mean onnxruntime-gpu ships CUDA
+        # kernels for THIS GPU's arch - a mismatch only surfaces at inference as
+        # cudaErrorNoKernelImageForDevice on the first Relu. Warm up once and
+        # drop to CPU so a new employee machine still produces SRT files.
+        try:
+            import numpy as np
 
-    params = {
-        # Empty detection is normal between subtitle cards; keep it out of the
-        # user log and only surface genuine OCR errors.
-        "Global.log_level": "error",
-        "EngineConfig.onnxruntime.use_cuda": use_cuda,
-    }
-    model_dir = _bundled_rapidocr_models_dir()
-    bundled_paths = {key: model_dir / name for key, name in _BUNDLED_OCR_MODELS.items()}
-    if all(path.is_file() for path in bundled_paths.values()):
-        params.update({key: str(path) for key, path in bundled_paths.items()})
-    _OCR_ENGINE = RapidOCR(params=params)
+            engine(np.zeros((64, 256, 3), dtype="uint8"), use_cls=False)
+        except Exception as exc:
+            first_line = str(exc).splitlines()[0][:140] if str(exc).strip() else exc.__class__.__name__
+            log_callback(f"[OCR] GPU CUDA không chạy được ({first_line}) — chuyển sang CPU")
+            use_cuda = False
+            try:
+                engine = _build_rapidocr(False)
+            except Exception as cpu_exc:
+                log_callback(f"[OCR] Không khởi tạo được engine CPU: {cpu_exc}")
+                raise
+
+    _OCR_ENGINE = engine
     try:
         providers = _OCR_ENGINE.text_det.session.session.get_providers()
         using_gpu = bool(providers and providers[0] == "CUDAExecutionProvider")

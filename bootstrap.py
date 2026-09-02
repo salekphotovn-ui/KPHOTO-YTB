@@ -8,9 +8,11 @@ import zipfile
 from pathlib import Path
 
 
-# KPHOTO-YTB_update.zip is the full app (exe + _internal minus torch + bin) and
-# lives on APP_TAG; the auto-updater ships every fix through it. Only the
-# never-changing torch and models stay on RUNTIME_TAG.
+# APP_TAG must point at a release whose KPHOTO-YTB_update.zip is the FULL app
+# (exe + _internal minus torch + bin) - a fresh install unpacks it verbatim.
+# Pure code/config fixes ship as small code-only update.zip on newer tags and a
+# fresh install picks them up via the auto-updater on first launch, so only bump
+# APP_TAG when a full-payload update.zip is re-published (deps/data/bin changed).
 APP_TAG = "v0.3.11"
 RUNTIME_TAG = "v0.3.4"
 _BASE = "https://github.com/salekphotovn-ui/KPHOTO-YTB/releases/download"
