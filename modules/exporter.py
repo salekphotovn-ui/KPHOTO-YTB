@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from collections import deque
 from pathlib import Path
 
@@ -446,13 +447,24 @@ def export_folder(
                         continue
                     if item.is_file() and item.suffix.casefold() == ".txt":
                         continue
-                    try:
-                        if item.is_file():
+                    if not item.is_file():
+                        continue
+                    deleted = False
+                    for attempt in range(4):
+                        try:
                             item.unlink()
-                            removed += 1
-                    except OSError as cleanup_error:
-                        if log_callback:
-                            log_callback(f"[Export] Không xóa được {item.name}: {cleanup_error}")
+                            deleted = True
+                            break
+                        except PermissionError:
+                            time.sleep(0.6)  # a player/handle may still hold it
+                        except OSError:
+                            break
+                    if deleted:
+                        removed += 1
+                    elif log_callback:
+                        # Not an export failure - keep the word "error" out so the
+                        # UI does not flag this line as LỖI.
+                        log_callback(f"[Export] Giu lai {item.name} (dang mo o noi khac)")
                 if log_callback:
                     log_callback(f"[Export] Đã dọn thư mục {folder.name}, xóa {removed} file trung gian")
         except Exception as exc:

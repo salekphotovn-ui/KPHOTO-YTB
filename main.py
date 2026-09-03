@@ -1318,6 +1318,21 @@ class MainWindow(QMainWindow):
         else:
             self.media_player.play()
 
+    def _release_preview_source(self):
+        """Drop the QMediaPlayer file handle so a pipeline can delete the video
+        it points at (Windows locks an open media file: WinError 32)."""
+        try:
+            self.media_player.stop()
+            self.media_player.setSource(QUrl())
+        except Exception:
+            pass
+        self.preview_video_path = None
+        self._last_preview_frame_image = None
+        self.blur_preview_item.hide()
+        self.subtitle_label.clear()
+        self.preview_play.setText("▶")
+        self.preview_play.setEnabled(False)
+
     def _seek_preview(self, position: int):
         self._pending_preview_seek = max(0, int(position))
         # Subtitle text and time follow the mouse immediately even while an
@@ -1828,6 +1843,11 @@ class MainWindow(QMainWindow):
             if steps.get("export") else None
         )
         self._set_auto_button("Đang chạy tự động...")
+        # The export stage deletes the source videos after rendering; a preview
+        # QMediaPlayer pointed at one of them locks the file on Windows
+        # (WinError 32). Release it before the run.
+        if steps.get("export"):
+            self._release_preview_source()
         if steps.get("download") and self.pending_download_links:
             urls, dfn = self.pending_download_links, self.pending_download_dfn
             self.pending_download_links = []
@@ -1880,12 +1900,10 @@ class MainWindow(QMainWindow):
         dialog = ExportDialog(self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        # Keep the selected video and current frame visible during export.
-        # FFmpeg only reads the source and exporter no longer deletes it, so
-        # releasing the QMediaPlayer source is unnecessary and caused a black
-        # preview for the entire long-running render.
-        self.media_player.pause()
-        self.preview_play.setText("▶")
+        # export_folder deletes the source videos after rendering, and a preview
+        # QMediaPlayer pointed at one locks it on Windows (WinError 32 in the
+        # cleanup). Release the handle before starting.
+        self._release_preview_source()
         configs = {path: dict(config) for path, config in self.overlay_configs.items()}
         if dialog.mux_vocal.isChecked():
             self.start_task(mux_and_export, str(self.root), overlay_configs=configs)
