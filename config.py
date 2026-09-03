@@ -97,7 +97,7 @@ BBDOWN_PATH = str(BIN_DIR / "BBDown.exe")
 ARIA2_PATH = str(BIN_DIR / "aria2c.exe")
 WORK_DIR = app_dir() / "workspace"
 DOWNLOAD_DIR = str(WORK_DIR / "1_downloaded")
-DEFAULT_DFN_PRIORITY = "720P 高清, 720P"
+DEFAULT_DFN_PRIORITY = "1080P 高清, 1080P, 720P 高清, 720P"
 # Default subtitle model selected in the V3 UI and automatic pipeline.
 TRANSLATOR_MODEL = "gemini-3.6-flash-high"
 # Default model used by the legacy tool.

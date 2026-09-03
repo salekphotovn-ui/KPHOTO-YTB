@@ -476,8 +476,8 @@ class DownloadDialog(QDialog):
         row = QHBoxLayout()
         row.addWidget(QLabel("Chất lượng:"))
         self.dfn = QComboBox()
-        self.dfn.addItem("720P (mặc định)", "720P 高清, 720P")
-        self.dfn.addItem("1080P ưu tiên", "1080P 高清, 1080P, 720P 高清, 720P")
+        self.dfn.addItem("1080P (mặc định)", "1080P 高清, 1080P, 720P 高清, 720P")
+        self.dfn.addItem("720P", "720P 高清, 720P")
         row.addWidget(self.dfn, 1)
         self.login_status = QLabel("Đã đăng nhập" if has_login_session() else "Chưa đăng nhập")
         row.addWidget(self.login_status)
@@ -522,7 +522,7 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.pending_task = None
         self.pending_download_links = []
-        self.pending_download_dfn = "720P 高清, 720P"
+        self.pending_download_dfn = "1080P 高清, 1080P, 720P 高清, 720P"
         self.auto_button = None
         self._auto_done_steps = set()
         self._auto_running_steps = set()
