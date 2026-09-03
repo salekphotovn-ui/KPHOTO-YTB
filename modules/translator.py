@@ -237,14 +237,14 @@ def _write_srt(path: Path, cues: list[dict]) -> None:
     path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
 
 
-def _post_chat(base_url: str, api_key: str, model_name: str, target: str, prompt: str):
+def _post_chat(base_url: str, api_key: str, model_name: str, system: str, prompt: str):
     return requests.post(
         f"{base_url}/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         json={
             "model": model_name,
             "messages": [
-                {"role": "system", "content": f"You are a professional native {target} subtitle translator."},
+                {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.2,
@@ -255,8 +255,9 @@ def _post_chat(base_url: str, api_key: str, model_name: str, target: str, prompt
     )
 
 
-def _translate_batch(items: list[dict], source: str, target: str, api_key: str, log=None) -> dict[int, str]:
-    """Translate one batch, rolling through the model pool on slow / 429 answers."""
+def _pool_chat(prompt: str, system: str, api_key: str, log=None) -> dict[int, str]:
+    """Send one {id,text} batch through the model pool, rolling to the next model
+    on a slow / 429 / broken answer. Returns the parsed {id: text} map."""
     base_url = _proxy_base_url()
     if not base_url:
         raise GeminiConfigError(
@@ -268,15 +269,6 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str, 
             "Thiếu GEMINI_API_KEY.",
             hint="Đặt gemini_api_key trong config.local.json rồi mở lại app.",
         )
-    prompt = (
-        f"Translate subtitle lines from {source} to {target}. Write them as a native "
-        f"{target} subtitle translator would: natural idiomatic wording, correct "
-        "conversational rhythm, and the right register for each speaker. Do not translate "
-        "word-for-word or keep Chinese sentence order. Preserve names, relationships, plot "
-        "facts, emotion and setting. Keep subtitles concise; never add explanations. Return "
-        'JSON only as {"translations":[{"id":0,"text":"..."}]} and include every ID once.\n\n'
-        + json.dumps(items, ensure_ascii=False)
-    )
 
     def emit(message: str) -> None:
         if log:
@@ -296,7 +288,7 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str, 
             if pass_no == 0 and not _model_ready(name):
                 continue
             try:
-                response = _post_chat(base_url, api_key, name, target, prompt)
+                response = _post_chat(base_url, api_key, name, system, prompt)
             except requests.RequestException as exc:
                 last_error = f"{name}: {exc}"
                 _cool_model(name, 20)
@@ -365,6 +357,85 @@ def _translate_batch(items: list[dict], source: str, target: str, api_key: str, 
         if pass_no == 0:
             time.sleep(8)
     raise RuntimeError(f"Tất cả model dịch đều bận: {last_error}")
+
+
+def _translate_batch(items: list[dict], source: str, target: str, api_key: str, log=None) -> dict[int, str]:
+    prompt = (
+        f"Translate subtitle lines from {source} to {target}. Write them as a native "
+        f"{target} subtitle translator would: natural idiomatic wording, correct "
+        "conversational rhythm, and the right register for each speaker. Do not translate "
+        "word-for-word or keep Chinese sentence order. Preserve names, relationships, plot "
+        "facts, emotion and setting. Keep subtitles concise; never add explanations. Return "
+        'JSON only as {"translations":[{"id":0,"text":"..."}]} and include every ID once.\n\n'
+        + json.dumps(items, ensure_ascii=False)
+    )
+    return _pool_chat(prompt, f"You are a professional native {target} subtitle translator.", api_key, log)
+
+
+def _clean_batch(items: list[dict], api_key: str, log=None) -> dict[int, str]:
+    prompt = (
+        "These are Mandarin Chinese subtitle lines transcribed from speech by an ASR "
+        "model, so some lines have wrong homophones, mis-heard words, missing or wrong "
+        "punctuation, or dropped particles. Fix ONLY those errors using context. Do NOT "
+        "translate, paraphrase, summarise, merge, split, reorder, add or delete lines; keep "
+        "each line's meaning, speaker and length close to the original. If a line is already "
+        "fine, return it unchanged. Return JSON only as "
+        '{"translations":[{"id":0,"text":"..."}]} with every id exactly once.\n\n'
+        + json.dumps(items, ensure_ascii=False)
+    )
+    return _pool_chat(prompt, "You are a meticulous Mandarin Chinese transcription proofreader.", api_key, log)
+
+
+def clean_transcript_srt(srt_path, api_key: str = "", log_callback=None, batch_size: int = 90) -> str:
+    """Proof-read an ASR-produced Chinese SRT through the model pool.
+
+    The original file is kept as ``<stem>.raw.srt`` and ``srt_path`` is
+    rewritten with the cleaned lines (timestamps untouched). A failure is
+    logged and swallowed - the raw SRT stays in place.
+    """
+    path = Path(srt_path)
+
+    def log(message: str) -> None:
+        if log_callback:
+            log_callback(message)
+
+    api_key = api_key or os.getenv("GEMINI_API_KEY", "")
+    cues = _read_srt(path)
+    if not cues:
+        log(f"[CleanSRT] {path.name}: không đọc được cue, bỏ qua")
+        return str(path)
+
+    raw_path = path.with_suffix(".raw.srt")
+    try:
+        if not raw_path.exists():
+            raw_path.write_text(path.read_text(encoding="utf-8-sig"), encoding="utf-8")
+    except OSError:
+        pass
+
+    log(f"[CleanSRT] {path.name}: làm sạch {len(cues)} câu bằng Gemini...")
+    texts = [cue["text"] for cue in cues]
+    changed = 0
+    for start in range(0, len(cues), batch_size):
+        chunk = list(range(start, min(start + batch_size, len(cues))))
+        items = [{"id": i, "text": cues[i]["text"]} for i in chunk]
+        try:
+            fixed = _clean_batch(items, api_key, log=log_callback)
+        except GeminiConfigError:
+            raise
+        except RuntimeError as exc:
+            log(f"[CleanSRT] Bỏ qua đoạn {chunk[0] + 1}-{chunk[-1] + 1}: {exc}")
+            continue
+        for i in chunk:
+            new_text = (fixed.get(i) or "").strip()
+            if new_text and new_text != texts[i]:
+                texts[i] = new_text
+                changed += 1
+        log(f"[SrtProgress] CLEAN {min(start + batch_size, len(cues))}/{len(cues)}")
+
+    out_cues = [{**cue, "text": texts[idx]} for idx, cue in enumerate(cues)]
+    _write_srt(path, out_cues)
+    log(f"[CleanSRT] {path.name}: sửa {changed}/{len(cues)} câu (bản gốc giữ ở {raw_path.name})")
+    return str(path)
 
 
 def translate_srt_batch(

@@ -502,7 +502,7 @@ def _extract_original_audio(video_path: Path, log_callback) -> tuple[Path, Path]
 
 def create_srt_batch(
     root_path: str, engine: str = "kphoto-local", source_mode: str = "vocals",
-    ocr_regions: dict | None = None, log_callback=print,
+    ocr_regions: dict | None = None, log_callback=print, clean_transcript: bool = False,
 ) -> list[str]:
     root = Path(root_path)
     source_mode = str(source_mode or "vocals").strip().lower()
@@ -576,6 +576,15 @@ def create_srt_batch(
             _write_srt(segments, output_path)
             if not output_path.is_file() or output_path.stat().st_size == 0:
                 raise RuntimeError(f"Khong ghi duoc file SRT: {output_path}")
+            if clean_transcript and engine != "rapidocr-v6" and language == "zh":
+                try:
+                    try:
+                        from .translator import clean_transcript_srt
+                    except ImportError:
+                        from translator import clean_transcript_srt
+                    clean_transcript_srt(output_path, log_callback=log_callback)
+                except Exception as clean_exc:
+                    log_callback(f"[CleanSRT] Lỗi làm sạch (giữ transcript gốc): {clean_exc}")
             results.append(str(output_path))
             log_callback(f"[SrtProgress] OUTPUT {output_path}")
             log_callback(f"[SrtProgress] DONE {index}/{len(sources)} {verb_done} :: {source_path.name}")

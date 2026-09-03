@@ -212,6 +212,10 @@ class SrtModelDialog(QDialog):
         self.source_group = QButtonGroup(self)
         self.source_group.addButton(self.original_audio)
         self.source_group.addButton(self.vocal_audio)
+        self.clean_transcript = QCheckBox(
+            "Làm sạch transcript bằng Gemini (chỉ engine audio) - giữ bản gốc ở zh.raw.srt"
+        )
+        layout.addWidget(self.clean_transcript)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
@@ -221,7 +225,7 @@ class SrtModelDialog(QDialog):
         else:
             engine = "kphoto-local" if self.kphoto.isChecked() else "whisper-v3"
         source_mode = "original" if self.original_audio.isChecked() else "vocals"
-        return engine, source_mode
+        return engine, source_mode, self.clean_transcript.isChecked()
 
 
 class TranslateDialog(QDialog):
@@ -1820,7 +1824,7 @@ class MainWindow(QMainWindow):
         dialog = SrtModelDialog(kphoto, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        engine, source_mode = dialog.values()
+        engine, source_mode, clean_transcript = dialog.values()
         ocr_regions = None
         if engine == "rapidocr-v6":
             ocr_regions = {
@@ -1828,7 +1832,8 @@ class MainWindow(QMainWindow):
                 for path, config in self.overlay_configs.items()
                 if config.get("ocr_roi")
             }
-        self.start_task(create_srt_batch, str(self.root), engine, source_mode, ocr_regions)
+        self.start_task(create_srt_batch, str(self.root), engine, source_mode, ocr_regions,
+                        clean_transcript=clean_transcript)
 
     def translate(self):
         if self.root == Path.cwd() or not self.root.exists():
