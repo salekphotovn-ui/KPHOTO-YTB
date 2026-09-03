@@ -45,8 +45,8 @@ def _cleanup_partials(root):
 # comparing against the "~NNN MB" estimates it prints for the selected streams.
 _SIZE_RE = re.compile(r"~\s*([\d.]+)\s*([KMG])B", re.IGNORECASE)
 _UNIT_SCALE = {"K": 1024, "M": 1024 * 1024, "G": 1024 * 1024 * 1024}
-_PHASE_HINTS = ("下载", "合并", "完成", "多线程",
-                "error", "failed", "warning", "exception")
+_PHASE_HINTS = ("下载", "合并", "完成", "多线程", "失败", "错误", "重试", "找不到", "无法", "403",
+                "error", "failed", "warning", "exception", "retry", "unable", "not found", "forbidden")
 
 
 class AuthenticationRequired(RuntimeError):
@@ -155,27 +155,41 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
         reader.join(timeout=5)
         return process.returncode
 
+    # A produced MP4 == success. BBDown routinely leaves *.vclip / *.aclip
+    # segments behind even on a clean run, so those alone must NOT trigger a
+    # re-download (that was the v0.3.13 5->75%->5% loop). Only retry when no
+    # MP4 came out at all, and stop early if a retry adds nothing.
     last_reason = ""
-    for attempt in range(1, 4):
+    prev_bytes = -1
+    for attempt in range(1, 3):
         if attempt > 1:
-            log(f"[BBDown] Chưa xong ({last_reason}) — thử lại lần {attempt}/3, tiếp tục từ phần đã tải...")
+            log(f"[BBDown] Chưa ra MP4 ({last_reason}) — thử lại lần {attempt}/2...")
         code = _run_once()
         after = _snapshot(output_dir)
         new_files = sorted(p for p, size in after.items() if before.get(p) != size)
-        partials = _partial_files(output_dir)
-        if code == 0 and new_files and not partials:
+        if new_files:
+            swept = _cleanup_partials(output_dir)
+            if swept:
+                log(f"[BBDown] Đã dọn {swept} mảnh tạm sau khi ghép")
             log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent=100")
             log(f"[DownloadProgress] DONE i={progress_index} total={progress_total}")
-            log(f"[BBDown] Tải xong {len(new_files)} file")
+            log(f"[BBDown] Tải xong {len(new_files)} file"
+                + ("" if code == 0 else f" (BBDown thoát mã {code})"))
             return new_files
+        partials = _partial_files(output_dir)
+        cur_bytes = _tree_bytes(output_dir)
         last_reason = (f"mã lỗi {code}" if code != 0
-                       else f"còn {len(partials)} mảnh .vclip chưa ghép" if partials
-                       else "không tạo được MP4")
+                       else f"còn {len(partials)} mảnh .vclip, chưa ghép" if partials
+                       else "BBDown không xuất MP4")
+        if attempt > 1 and cur_bytes <= prev_bytes:
+            log("[BBDown] Lần thử lại không tải thêm được — dừng.")
+            break
+        prev_bytes = cur_bytes
 
     removed = _cleanup_partials(output_dir)
     raise RuntimeError(
-        f"BBDown tải link {progress_index} không xong sau 3 lần ({last_reason}); "
-        f"đã dọn {removed} file tạm. Kiểm tra mạng / link rồi tải lại."
+        f"BBDown không tạo được MP4 cho link {progress_index} ({last_reason}); "
+        f"đã dọn {removed} file tạm. Thử tải riêng link này bằng nút Tải để xem lỗi BBDown."
     )
 
 def download_multiple(urls: list[str], dfn_priority: str = DEFAULT_DFN_PRIORITY,
