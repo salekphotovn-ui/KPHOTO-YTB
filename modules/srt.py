@@ -578,6 +578,8 @@ def create_srt_batch(
                 raise RuntimeError(f"Khong ghi duoc file SRT: {output_path}")
             if clean_transcript and engine != "rapidocr-v6" and language == "zh":
                 try:
+                    # A fresh transcript invalidates any earlier raw backup.
+                    (subtitle_dir / f"{language}.raw.srt").unlink(missing_ok=True)
                     try:
                         from .translator import clean_transcript_srt
                     except ImportError:
