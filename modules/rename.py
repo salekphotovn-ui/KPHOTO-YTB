@@ -63,6 +63,10 @@ def auto_rename_folder(folder_path: str, log_callback=None) -> list[str]:
             elif len(mp4s_inside) == 1:
                 # Thư mục chỉ có đúng 1 file .mp4 (không phải nhiều phần cần ghép) -> coi như đã hoàn chỉnh
                 entries.append(("folder_done", full, name, mp4s_inside[0]))
+            elif not mp4s_inside:
+                # Thư mục con không có .mp4 nào (vd 'subtitles', thư mục rỗng còn sót)
+                # -> không phải phim, bỏ qua thay vì crash ở sorted_mp4s[0].
+                _log(f"⏭️ Bỏ qua thư mục '{name}' (không có file .mp4 bên trong).")
             else:
                 _log(f"⏭️ Bỏ qua thư mục '{name}' (chưa có DONE.mp4 - cần ghép ở Tab 3 trước).")
                 # Vẫn tạo sẵn file .txt 2 dòng (tên thư mục + tên tập 1) để
