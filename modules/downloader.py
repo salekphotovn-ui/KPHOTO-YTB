@@ -43,6 +43,9 @@ def _cleanup_partials(root):
 # is a pipe (as it is here) it prints no percentage at all. Progress is instead
 # derived by polling the size of the files BBDown writes into the work dir and
 # comparing against the "~NNN MB" estimates it prints for the selected streams.
+# Kill a BBDown run that writes no new bytes for this long (stuck --multi-thread
+# segment connection) so the caller can retry single-threaded.
+_STALL_SECONDS = 150
 _SIZE_RE = re.compile(r"~\s*([\d.]+)\s*([KMG])B", re.IGNORECASE)
 _UNIT_SCALE = {"K": 1024, "M": 1024 * 1024, "G": 1024 * 1024 * 1024}
 _PHASE_HINTS = ("下载", "合并", "完成", "多线程", "失败", "错误", "重试", "找不到", "无法", "403",
@@ -133,6 +136,9 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
         reader.start()
 
         last_bytes, last_time, last_pct = 0, time.monotonic(), -1
+        stall_since = time.monotonic()
+        peak_bytes = 0
+        stalled = False
         while process.poll() is None:
             time.sleep(1.0)
             got = max(0, _tree_bytes(output_dir) - baseline_bytes)
@@ -144,6 +150,17 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
                 if rate > 0:
                     speed = f" speed={rate / (1024 * 1024):.2f} MB/s"
             last_bytes, last_time = got, now
+            # Watchdog: BBDown --multi-thread can lose a segment connection and
+            # never recover or exit. If nothing has been written anywhere for a
+            # while, kill it so the caller can fall back to single-thread.
+            if got > peak_bytes:
+                peak_bytes = got
+                stall_since = now
+            elif now - stall_since > _STALL_SECONDS:
+                log(f"[BBDown] Tải đứng {_STALL_SECONDS}s không nhích — dừng tiến trình để thử lại.")
+                stalled = True
+                process.kill()
+                break
             if expected > 0:
                 pct = max(1, min(99, int(got * 100 / expected)))
                 if pct != last_pct:
@@ -152,23 +169,28 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
             elif got > 0:
                 log(f"[BBDown] Đã tải {got / (1024 * 1024):.1f} MB{speed}")
 
+        try:
+            process.wait(timeout=15)
+        except Exception:
+            process.kill()
         reader.join(timeout=5)
-        return process.returncode
+        return -99 if stalled else process.returncode
 
     # A produced MP4 == success. BBDown routinely leaves *.vclip / *.aclip
     # segments behind even on a clean run, so those alone must NOT trigger a
     # re-download (that was the v0.3.13 5->75%->5% loop). Only retry when no
     # MP4 came out at all, and stop early if a retry adds nothing.
     last_reason = ""
-    prev_bytes = -1
     for attempt in range(1, 3):
         run_cmd = list(cmd)
         if attempt > 1:
             # Fall back to a plain `BBDown <url>` (what the user confirmed works
             # by hand): --multi-thread / --force-http can break long videos on
-            # some Bilibili CDN nodes.
+            # some Bilibili CDN nodes. Clear the stalled multi-thread segments
+            # first so the single-thread run starts clean.
             run_cmd = [c for c in run_cmd if c not in ("--multi-thread", "--force-http")]
-            log(f"[BBDown] Chưa ra MP4 ({last_reason}) — thử lại lần {attempt}/2 ở chế độ đơn luồng...")
+            wiped = _cleanup_partials(output_dir)
+            log(f"[BBDown] Chưa ra MP4 ({last_reason}) — dọn {wiped} mảnh, thử lại lần {attempt}/2 ở chế độ đơn luồng...")
         code = _run_once(run_cmd)
         after = _snapshot(output_dir)
         new_files = sorted(p for p, size in after.items() if before.get(p) != size)
@@ -182,14 +204,10 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
                 + ("" if code == 0 else f" (BBDown thoát mã {code})"))
             return new_files
         partials = _partial_files(output_dir)
-        cur_bytes = _tree_bytes(output_dir)
-        last_reason = (f"mã lỗi {code}" if code != 0
+        last_reason = ("tải bị treo, đã kill" if code == -99
+                       else f"mã lỗi {code}" if code != 0
                        else f"còn {len(partials)} mảnh .vclip, chưa ghép" if partials
                        else "BBDown không xuất MP4")
-        if attempt > 1 and cur_bytes <= prev_bytes:
-            log("[BBDown] Lần thử lại không tải thêm được — dừng.")
-            break
-        prev_bytes = cur_bytes
 
     removed = _cleanup_partials(output_dir)
     raise RuntimeError(
