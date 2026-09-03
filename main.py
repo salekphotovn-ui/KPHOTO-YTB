@@ -542,6 +542,7 @@ class MainWindow(QMainWindow):
         self._preview_resume_after_seek = False
         self._pending_preview_seek = 0
         self._ocr_draw_origin = None
+        self._ocr_region_hidden = False
         self._updating_ocr_region = False
         self._updating_blur_region = False
         self._last_preview_frame_image = None
@@ -889,6 +890,7 @@ class MainWindow(QMainWindow):
         self._preview_loading_frame = True
         self._preview_was_muted = self.audio_output.isMuted()
         self.preview_video_path = video_path
+        self._ocr_region_hidden = False
         self._last_preview_frame_image = None
         self.blur_preview_item.hide()
         video_config = self.overlay_configs.get(str(video_path.resolve()), {})
@@ -949,10 +951,13 @@ class MainWindow(QMainWindow):
                 ).intersected(video_display_rect)
                 self._updating_ocr_region = True
                 self.ocr_region_item.set_scene_box(box)
-                self.ocr_region_item.show()
+                self.ocr_region_item.setVisible(not self._ocr_region_hidden)
                 self._updating_ocr_region = False
             else:
                 self.ocr_region_item.hide()
+            self.ocr_region_button.setText(
+                "▣ Ẩn khung OCR" if self.ocr_region_item.isVisible() else "▣ Khung OCR"
+            )
             blur_boxes = video_config.get("blur_boxes") or []
             blur_box = blur_boxes[0] if blur_boxes and len(blur_boxes[0]) == 4 else None
             self._updating_blur_region = True
@@ -1100,9 +1105,22 @@ class MainWindow(QMainWindow):
         if not self.preview_video_path:
             QMessageBox.information(self, "Khung OCR", "Hãy chọn một video ở danh sách bên trái trước.")
             return
+        # Toggle: if the box is on screen, hide it (the ROI stays saved); if it
+        # is hidden, show it and arm drawing so it can be redrawn.
+        if self.ocr_region_item.isVisible():
+            self._ocr_region_hidden = True
+            self.ocr_region_item.hide()
+            self.video_view.ocr_drawing = False
+            self.video_view.unsetCursor()
+            self.ocr_region_button.setText("▣ Khung OCR")
+            self.status.setText("Đã ẩn khung OCR (vùng vẫn được lưu). Bấm lại để hiện.")
+            return
+        self._ocr_region_hidden = False
+        self._resize_preview_scene()
         self.video_view.ocr_drawing = True
         self.video_view.setCursor(Qt.CursorShape.CrossCursor)
-        self.status.setText("Giữ chuột và kéo trên video để tạo khung OCR.")
+        self.ocr_region_button.setText("▣ Ẩn khung OCR")
+        self.status.setText("Kéo trên video để vẽ lại khung OCR, hoặc bấm lại để ẩn.")
 
     def _ocr_drag_started(self, point):
         allowed = self.ocr_region_item.allowed_rect
@@ -1129,8 +1147,11 @@ class MainWindow(QMainWindow):
         self.video_view.unsetCursor()
         if self.ocr_region_item.scene_box().width() < 40 or self.ocr_region_item.scene_box().height() < 28:
             self.ocr_region_item.hide()
+            self.ocr_region_button.setText("▣ Khung OCR")
             self.status.setText("Khung OCR quá nhỏ; hãy kéo lại.")
             return
+        self._ocr_region_hidden = False
+        self.ocr_region_button.setText("▣ Ẩn khung OCR")
         self._ocr_region_changed()
 
     def _ocr_region_changed(self):
