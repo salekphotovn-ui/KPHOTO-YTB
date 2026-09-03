@@ -95,8 +95,8 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     log(f"[BBDown] Đang tải link {progress_index}/{progress_total}")
     log(f"[DownloadProgress] START i={progress_index} total={progress_total}")
 
-    def _run_once() -> int:
-        process = subprocess.Popen(cmd, cwd=BBDOWN_DIR, stdout=subprocess.PIPE,
+    def _run_once(run_cmd) -> int:
+        process = subprocess.Popen(run_cmd, cwd=BBDOWN_DIR, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=False, bufsize=0)
         recent_sizes: list[int] = []
 
@@ -162,9 +162,14 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     last_reason = ""
     prev_bytes = -1
     for attempt in range(1, 3):
+        run_cmd = list(cmd)
         if attempt > 1:
-            log(f"[BBDown] Chưa ra MP4 ({last_reason}) — thử lại lần {attempt}/2...")
-        code = _run_once()
+            # Fall back to a plain `BBDown <url>` (what the user confirmed works
+            # by hand): --multi-thread / --force-http can break long videos on
+            # some Bilibili CDN nodes.
+            run_cmd = [c for c in run_cmd if c not in ("--multi-thread", "--force-http")]
+            log(f"[BBDown] Chưa ra MP4 ({last_reason}) — thử lại lần {attempt}/2 ở chế độ đơn luồng...")
+        code = _run_once(run_cmd)
         after = _snapshot(output_dir)
         new_files = sorted(p for p, size in after.items() if before.get(p) != size)
         if new_files:
