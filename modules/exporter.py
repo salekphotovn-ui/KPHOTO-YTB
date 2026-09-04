@@ -169,11 +169,14 @@ def _subtitle_force_style(subtitle_style, top_margin_ratio: float) -> str:
 def _build_filter(
     video_path: Path, blur_boxes: list[list[float]], logo_path: str,
     subtitle_y_ratio: float = 0.86, logo_box: list[float] | None = None,
-    blur_strength: int = 12, subtitle_style=None,
+    blur_strength: int = 12, subtitle_style=None, blur_feather: float = 22.0,
 ) -> str:
     chains = ["[0:v]setpts=PTS-STARTPTS[base]"]
     current = "[base]"
     blur_sigma = max(0, min(100, int(blur_strength)))
+    # Width in pixels of the soft border that fades the blur patch into the
+    # untouched frame on every side. 0 keeps the old hard-edged rectangle.
+    feather = max(0.0, min(200.0, float(blur_feather)))
     index = -1
     for box in blur_boxes:
         try:
@@ -187,15 +190,36 @@ def _build_filter(
         if width < 0.01 or height < 0.01:
             continue
         index += 1
-        crop = (
-            f"crop=iw*{width:.6f}:ih*{height:.6f}:iw*{x:.6f}:ih*{y:.6f},"
-            f"gblur=sigma={blur_sigma}:steps=4"
-        )
-        chains.append(
-            f"{current}split=2[keep{index}][patch{index}];"
-            f"[patch{index}]{crop}[blur{index}];"
-            f"[keep{index}][blur{index}]overlay=x=main_w*{x:.6f}:y=main_h*{y:.6f}[b{index}]"
-        )
+        crop_expr = f"crop=iw*{width:.6f}:ih*{height:.6f}:iw*{x:.6f}:ih*{y:.6f}"
+        overlay_expr = f"overlay=x=main_w*{x:.6f}:y=main_h*{y:.6f}"
+        if feather <= 0.0:
+            chains.append(
+                f"{current}split=2[keep{index}][patch{index}];"
+                f"[patch{index}]{crop_expr},gblur=sigma={blur_sigma}:steps=4[blur{index}];"
+                f"[keep{index}][blur{index}]{overlay_expr}[b{index}]"
+            )
+        else:
+            # Overlay the blurred patch through an alpha mask that is fully
+            # opaque in the middle and ramps linearly to transparent over the
+            # outer `feather` pixels of every side, so the region melts into the
+            # untouched frame instead of showing a hard rectangle. Each ramp
+            # divisor is clamped to half that side so the centre still reaches
+            # full opacity on thin subtitle-strip boxes.
+            fpx = max(1, int(round(feather)))
+            ramp = (
+                f"clip(255*min("
+                f"min(X\\,W-1-X)/min({fpx}\\,(W-1)/2)\\,"
+                f"min(Y\\,H-1-Y)/min({fpx}\\,(H-1)/2)"
+                f")\\,0\\,255)"
+            )
+            chains.append(
+                f"{current}split=2[keep{index}][patch{index}];"
+                f"[patch{index}]{crop_expr},split=2[pdata{index}][pmask{index}];"
+                f"[pdata{index}]gblur=sigma={blur_sigma}:steps=4[pblur{index}];"
+                f"[pmask{index}]format=gray,geq=lum='{ramp}'[pa{index}];"
+                f"[pblur{index}][pa{index}]alphamerge[blur{index}];"
+                f"[keep{index}][blur{index}]{overlay_expr}[b{index}]"
+            )
         current = f"[b{index}]"
     if logo_path:
         logo_box = logo_box or [0.82, 0.02, 0.14, 0.14]
@@ -293,6 +317,7 @@ def export_video(
     subtitle_y_ratio: float = 0.86,
     logo_box: list[float] | None = None,
     blur_strength: int = 12,
+    blur_feather: float = 22.0,
     subtitle_style=None,
     log_callback=None,
     progress_callback=None,
@@ -312,7 +337,7 @@ def export_video(
         log_callback(f"[Export] Vùng blur: {len(blur_boxes)}")
     filters = _build_filter(
         source, blur_boxes, logo_path, subtitle_y_ratio, logo_box, blur_strength,
-        subtitle_style,
+        subtitle_style, blur_feather,
     )
     encoder = _encoder()
     vocal = _local_vocal_path(source)
@@ -415,6 +440,7 @@ def export_folder(
             video_subtitle_y = config.get("subtitle_y_ratio", 0.86)
             video_logo_box = config.get("logo_box")
             video_blur_strength = config.get("blur_strength", 12)
+            video_blur_feather = config.get("blur_feather", 22.0)
             video_subtitle_style = config.get("subtitle_style")
             def overall_progress(value, current=index):
                 if progress_callback:
@@ -430,6 +456,7 @@ def export_folder(
                 subtitle_y_ratio=video_subtitle_y,
                 logo_box=video_logo_box,
                 blur_strength=video_blur_strength,
+                blur_feather=video_blur_feather,
                 subtitle_style=video_subtitle_style,
                 log_callback=log_callback,
                 progress_callback=overall_progress,
