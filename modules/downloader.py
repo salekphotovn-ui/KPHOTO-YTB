@@ -175,10 +175,20 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
 def download_multiple(urls: list[str], dfn_priority: str = DEFAULT_DFN_PRIORITY,
                       output_dir: str = None, log_callback=None) -> list[str]:
     results = []
+    failures = []
     for i, url in enumerate(urls, 1):
         try:
             results.extend(download_video(url.strip(), dfn_priority, output_dir,
                                           log_callback, i, len(urls)))
         except Exception as exc:
+            failures.append(f"Link {i} ({url.strip()}): {exc}")
             if log_callback: log_callback(f"[BBDown] Lỗi link {i}: {exc}")
+    if not results and failures:
+        # Every link in the batch failed - don't let the pipeline carry on to
+        # concat/rename/OCR/export on an empty folder and report "Hoàn tất" as
+        # if a video had actually come down.
+        raise RuntimeError(
+            f"Không tải được video nào ({len(failures)}/{len(urls)} link lỗi):\n"
+            + "\n".join(failures)
+        )
     return results
