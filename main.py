@@ -94,10 +94,10 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
         log("[AutoStage] Đang tách vocal")
         separate_folder(folder, log_callback=log_callback)
     if steps.get("srt"):
-        log("[AutoStage] Đang quét OCR PP-OCRv6 (timeline 0,1 giây)")
+        log("[AutoStage] Đang tạo SRT bằng Whisper V3")
         create_srt_batch(
-            folder, engine="rapidocr-v6", log_callback=log_callback,
-            ocr_regions=ocr_regions,
+            folder, engine="whisper-v3", source_mode="original",
+            clean_transcript=True, log_callback=log_callback,
         )
     if steps.get("translate"):
         log("[AutoStage] Đang dịch Gemini 3.6 Flash-High")
@@ -147,7 +147,7 @@ class AutoProcessDialog(QDialog):
         ("concat", "Ghép file video"),
         ("rename", "Đặt tên / phân loại"),
         ("separate", "Tách vocal"),
-        ("srt", "Quét SRT bằng PP-OCRv6 (cần vẽ Khung OCR)"),
+        ("srt", "Tạo SRT bằng Whisper V3 (+ làm sạch Gemini)"),
         ("translate", "Dịch SRT bằng Gemini"),
         ("export", "Xuất video (blur + phụ đề)"),
     ]
@@ -1790,26 +1790,6 @@ class MainWindow(QMainWindow):
         if self.auto_button is not None:
             self.auto_button.setText(text)
 
-    def _auto_ocr_regions_ready(self):
-        videos = [
-            path for path in self.root.rglob("*")
-            if path.is_file() and path.suffix.lower() == ".mp4" and "_Export" not in path.stem
-        ]
-        missing = [
-            path.name for path in videos
-            if not self.overlay_configs.get(str(path.resolve()), {}).get("ocr_roi")
-        ]
-        if missing:
-            self.status.setText(f"Còn {len(missing)} video chưa có khung OCR")
-            QMessageBox.information(
-                self, "Thiếu khung OCR",
-                "Hãy chọn từng video và vẽ Khung OCR trước khi tiếp tục:\n\n"
-                + "\n".join(missing[:12])
-                + ("\n..." if len(missing) > 12 else ""),
-            )
-            return False
-        return True
-
     def auto_run(self):
         try:
             busy = bool(self.thread and self.thread.isRunning())
@@ -1831,9 +1811,6 @@ class MainWindow(QMainWindow):
             self.status.setText("Chưa chọn bước nào để chạy.")
             return
         self._auto_running_steps = {key for key, on in steps.items() if on}
-        # OCR-based SRT needs a per-video ROI; block only this run until drawn.
-        if steps.get("srt") and not self._auto_ocr_regions_ready():
-            return
         regions = {
             path: list(config["ocr_roi"])
             for path, config in self.overlay_configs.items()
