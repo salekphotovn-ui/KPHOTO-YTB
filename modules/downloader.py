@@ -183,6 +183,14 @@ def download_multiple(urls: list[str], dfn_priority: str = DEFAULT_DFN_PRIORITY,
         except Exception as exc:
             failures.append(f"Link {i} ({url.strip()}): {exc}")
             if log_callback: log_callback(f"[BBDown] Lỗi link {i}: {exc}")
+    if failures and log_callback:
+        # Surface a single loud summary so a partial failure is not just a
+        # per-link line that scrolls out of the log. "LỖI" makes the UI flag it.
+        got = len(results)
+        log_callback(
+            f"[BBDown] LỖI: chỉ tải được {got}/{len(urls)} link — "
+            f"{len(failures)} link thất bại:\n" + "\n".join(failures)
+        )
     if not results and failures:
         # Every link in the batch failed - don't let the pipeline carry on to
         # concat/rename/OCR/export on an empty folder and report "Hoàn tất" as
