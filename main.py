@@ -189,9 +189,9 @@ class SrtModelDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn model nhận dạng tiếng Trung:"))
         self.whisper = QRadioButton("Whisper V3 (large-v3) - chất lượng cao")
+        self.whisper.setChecked(True)
         layout.addWidget(self.whisper)
         self.rapidocr = QRadioButton("PP-OCRv6 Small - đọc sub Trung trên hình, nhanh và đúng timeline")
-        self.rapidocr.setChecked(True)
         layout.addWidget(self.rapidocr)
         layout.addWidget(QLabel("OCR đọc trực tiếp hình ảnh nên không sử dụng nguồn âm thanh bên dưới."))
         self.kphoto = QRadioButton("KPHOTO-Local - nhanh, dùng GPU")
@@ -215,6 +215,7 @@ class SrtModelDialog(QDialog):
         self.clean_transcript = QCheckBox(
             "Làm sạch transcript bằng Gemini (chỉ engine audio) - giữ bản gốc ở zh.raw.srt"
         )
+        self.clean_transcript.setChecked(True)
         layout.addWidget(self.clean_transcript)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
