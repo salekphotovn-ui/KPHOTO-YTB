@@ -55,6 +55,24 @@ class AuthenticationRequired(RuntimeError):
 def has_login_session() -> bool:
     return os.path.isfile(os.path.join(BBDOWN_DIR, "BBDown.data"))
 
+# A Bilibili web QR login (SESSDATA) is good for roughly a month. Past this we
+# warn that the saved session is probably dead even though the file still exists.
+_LOGIN_STALE_DAYS = 25
+
+
+def login_session_status() -> tuple[str, int]:
+    """('ok' | 'stale' | 'none', age_in_days). File age only, no network call."""
+    path = os.path.join(BBDOWN_DIR, "BBDown.data")
+    if not os.path.isfile(path):
+        return "none", -1
+    age_days = int((time.time() - os.path.getmtime(path)) // 86400)
+    return ("stale" if age_days >= _LOGIN_STALE_DAYS else "ok"), age_days
+
+
+# BBDown / Bilibili phrases that mean "we blocked this because you are not
+# logged in" rather than "the link is bad".
+_RISK_HINTS = ("风控", "请求被拦截", "账号未登录", "请先登录", "-352", "大会员", "会员专享")
+
 def bbdown_login(log_callback=None):
     def log(msg):
         (log_callback or print)(msg)
@@ -101,6 +119,7 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     process = subprocess.Popen(cmd, cwd=BBDOWN_DIR, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=False, bufsize=0)
     recent_sizes: list[int] = []
+    risk_control: list[str] = []
 
     def _drain():
         pending = ""
@@ -120,6 +139,8 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
                         recent_sizes.append(int(float(value) * _UNIT_SCALE[unit.upper()]))
                     except (ValueError, KeyError):
                         pass
+                if not risk_control and any(hint in line for hint in _RISK_HINTS):
+                    risk_control.append(line)
                 safe = re.sub(r"https?://\S+", "[CDN URL]", line)
                 if len(safe) > 300:
                     safe = safe[:300] + "..."
@@ -159,6 +180,13 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     new_files = sorted(p for p, size in after.items() if before.get(p) != size)
     if not new_files:
         removed = _cleanup_partials(output_dir)
+        if risk_control:
+            log(f"[BBDown] {re.sub(r'https?://\\S+', '[CDN URL]', risk_control[0])}")
+            raise RuntimeError(
+                f"Link {progress_index}: Bilibili chặn (风控/chưa đăng nhập). "
+                "Mở lại hộp thoại Tải, bấm 'Đăng nhập QR' quét mã rồi tải lại. "
+                f"Đã dọn {removed} file tạm."
+            )
         raise RuntimeError(
             f"BBDown không tạo được MP4 cho link {progress_index} (thoát mã {process.returncode}); "
             f"đã dọn {removed} file tạm. Thử tải riêng link này bằng nút Tải để xem lỗi BBDown."

@@ -51,7 +51,7 @@ from modules.srt import create_srt_batch
 from modules.translator import translate_srt_batch
 from modules.muxer import mux_folder
 from modules.exporter import export_folder
-from modules.downloader import bbdown_login, download_multiple, has_login_session
+from modules.downloader import bbdown_login, download_multiple, login_session_status
 from modules.rename import auto_rename_folder
 from modules.concat import concat_videos
 from modules.updater import latest_release, download_and_install
@@ -480,7 +480,8 @@ class DownloadDialog(QDialog):
         self.dfn.addItem("1080P (mặc định)", "1080P 高清, 1080P, 720P 高清, 720P")
         self.dfn.addItem("720P", "720P 高清, 720P")
         row.addWidget(self.dfn, 1)
-        self.login_status = QLabel("Đã đăng nhập" if has_login_session() else "Chưa đăng nhập")
+        self.login_status = QLabel()
+        self._refresh_login_status()
         row.addWidget(self.login_status)
         login = QPushButton("Đăng nhập QR")
         login.clicked.connect(self.login)
@@ -491,9 +492,47 @@ class DownloadDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def _refresh_login_status(self):
+        state, age = login_session_status()
+        if state == "ok":
+            self.login_status.setText(f"✓ Đã đăng nhập ({age} ngày)")
+            self.login_status.setStyleSheet("color:#3fbf5f")
+        elif state == "stale":
+            self.login_status.setText(f"⚠ Đăng nhập {age} ngày trước — nên đăng nhập lại")
+            self.login_status.setStyleSheet("color:#e0a030")
+        else:
+            self.login_status.setText("⚠ Chưa đăng nhập")
+            self.login_status.setStyleSheet("color:#e0554d")
+
     def login(self):
         bbdown_login()
-        self.login_status.setText("Đã mở Edge riêng - hãy quét QR")
+        self.login_status.setText("Đã mở cửa sổ BBDown — quét QR xong bấm OK")
+        self.login_status.setStyleSheet("color:#e0a030")
+
+    def accept(self):
+        state, _age = login_session_status()
+        if state != "ok":
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Đăng nhập BBDown")
+            box.setText(
+                ("Chưa có phiên đăng nhập BBDown."
+                 if state == "none" else
+                 "Phiên đăng nhập BBDown đã cũ, nhiều khả năng hết hạn.")
+                + "\n\nTải nhiều link liên tiếp khi chưa đăng nhập rất dễ bị Bilibili "
+                  "chặn (风控) — thường chỉ link đầu tải được. Nên đăng nhập QR trước."
+            )
+            login_btn = box.addButton("Đăng nhập QR", QMessageBox.ButtonRole.ActionRole)
+            go_btn = box.addButton("Vẫn tải", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton("Huỷ", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is login_btn:
+                self.login()
+                return  # keep the dialog open so they scan then press OK again
+            if clicked is not go_btn:
+                return
+        super().accept()
 
     def values(self):
         return [line.strip() for line in self.urls.toPlainText().splitlines() if line.strip()], self.dfn.currentData()
