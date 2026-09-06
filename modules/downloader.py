@@ -61,9 +61,17 @@ _LOGIN_STALE_DAYS = 25
 
 
 def login_session_status() -> tuple[str, int]:
-    """('ok' | 'stale' | 'none', age_in_days). File age only, no network call."""
+    """('ok' | 'stale' | 'none', age_in_days). Content + file age, no network."""
     path = os.path.join(BBDOWN_DIR, "BBDown.data")
     if not os.path.isfile(path):
+        return "none", -1
+    try:
+        blob = open(path, "rb").read(8192).decode("utf-8", "replace")
+    except OSError:
+        return "none", -1
+    # Before a QR login completes, BBDown writes a ~100-byte guest bili_ticket
+    # stub with no SESSDATA. That is NOT a logged-in session.
+    if "SESSDATA" not in blob:
         return "none", -1
     age_days = int((time.time() - os.path.getmtime(path)) // 86400)
     return ("stale" if age_days >= _LOGIN_STALE_DAYS else "ok"), age_days
@@ -82,12 +90,34 @@ def bbdown_login(log_callback=None):
     def log(msg):
         (log_callback or print)(msg)
     log("[BBDown] Đang mở cửa sổ đăng nhập QR...")
+    qr_path = os.path.join(BBDOWN_DIR, "qrcode.png")
+    # Drop a stale QR so we only ever auto-open the fresh one.
+    try:
+        os.remove(qr_path)
+    except OSError:
+        pass
     if os.name == "nt":
         subprocess.Popen(["cmd", "/k", BBDOWN_PATH, "login"], cwd=BBDOWN_DIR,
                          creationflags=subprocess.CREATE_NEW_CONSOLE)
     else:
         subprocess.Popen([BBDOWN_PATH, "login"], cwd=BBDOWN_DIR)
-    log("[BBDown] Hãy quét mã QR trong cửa sổ BBDown.")
+
+    def _open_qr_image():
+        # The console QR renders as broken glyphs under the cmd codepage;
+        # BBDown also writes a real qrcode.png - open that for scanning.
+        for _ in range(30):
+            time.sleep(0.5)
+            if os.path.isfile(qr_path):
+                if os.name == "nt":
+                    try:
+                        os.startfile(qr_path)  # type: ignore[attr-defined]
+                    except OSError:
+                        pass
+                return
+
+    threading.Thread(target=_open_qr_image, daemon=True).start()
+    log("[BBDown] Quét mã QR (ảnh bin/qrcode.png sẽ tự mở). Trên điện thoại "
+        "nhớ bấm 'Xác nhận', đợi cửa sổ hiện '登录成功' rồi mới đóng.")
 
 def _snapshot(root):
     return {str(p.resolve()): p.stat().st_size for p in Path(root).rglob("*.mp4") if p.is_file()}
