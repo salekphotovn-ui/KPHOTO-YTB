@@ -69,9 +69,14 @@ def login_session_status() -> tuple[str, int]:
     return ("stale" if age_days >= _LOGIN_STALE_DAYS else "ok"), age_days
 
 
-# BBDown / Bilibili phrases that mean "we blocked this because you are not
-# logged in" rather than "the link is bad".
-_RISK_HINTS = ("风控", "请求被拦截", "账号未登录", "请先登录", "-352", "大会员", "会员专享")
+# BBDown / Bilibili output that means "we blocked this because you are not
+# logged in" rather than "the link is bad". BBDown 1.6.3 prints the HTTP layer
+# error in English ("412, Precondition Failed" / "statuscode_reason"); the
+# Chinese phrases cover the API-level -352 / risk-control messages.
+_RISK_HINTS = (
+    "Precondition Failed", "statuscode_reason", "-352", "-412",
+    "风控", "请求被拦截", "账号未登录", "请先登录", "大会员", "会员专享",
+)
 
 def bbdown_login(log_callback=None):
     def log(msg):
@@ -211,12 +216,12 @@ def download_multiple(urls: list[str], dfn_priority: str = DEFAULT_DFN_PRIORITY,
         except Exception as exc:
             failures.append(f"Link {i} ({url.strip()}): {exc}")
             if log_callback: log_callback(f"[BBDown] Lỗi link {i}: {exc}")
-    if failures and log_callback:
-        # Surface a single loud summary so a partial failure is not just a
-        # per-link line that scrolls out of the log. "LỖI" makes the UI flag it.
-        got = len(results)
+    if failures and results and log_callback:
+        # Partial failure: the run continues, so a per-link line that scrolls
+        # out of the log is not enough. (When results is empty the raise below
+        # already carries the full list, so don't print it twice.)
         log_callback(
-            f"[BBDown] LỖI: chỉ tải được {got}/{len(urls)} link — "
+            f"[BBDown] LỖI: chỉ tải được {len(results)}/{len(urls)} link — "
             f"{len(failures)} link thất bại:\n" + "\n".join(failures)
         )
     if not results and failures:
