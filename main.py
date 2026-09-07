@@ -95,7 +95,7 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
         separate_folder(folder, log_callback=log_callback)
     if steps.get("srt"):
         srt_engine = os.getenv("BILI2YT_SRT_ENGINE") or "whisper-v3"
-        engine_label = {"whisper-v3": "Whisper V3", "kphoto-local": "KPHOTO-Local",
+        engine_label = {"whisper-v3": "Whisper V3",
                         "rapidocr-v6": "PP-OCRv6"}.get(srt_engine, srt_engine)
         log(f"[AutoStage] Đang tạo SRT bằng {engine_label}")
         create_srt_batch(
@@ -186,34 +186,24 @@ class AutoProcessDialog(QDialog):
 
 
 class SrtModelDialog(QDialog):
-    def __init__(self, kphoto_available: bool, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chọn model tạo SRT")
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn model nhận dạng tiếng Trung:"))
-        self.whisper = QRadioButton("Whisper V3 (large-v3) - chất lượng cao")
+        self.whisper = QRadioButton("Whisper V3 (large-v3) - chất lượng cao (cần GPU)")
         layout.addWidget(self.whisper)
-        self.rapidocr = QRadioButton("PP-OCRv6 Small - đọc sub Trung trên hình, nhanh và đúng timeline")
+        self.rapidocr = QRadioButton("PP-OCRv6 Small - đọc sub Trung trên hình, nhẹ cho máy yếu / video ngắn")
         layout.addWidget(self.rapidocr)
         layout.addWidget(QLabel("OCR đọc trực tiếp hình ảnh nên không sử dụng nguồn âm thanh bên dưới."))
-        self.kphoto = QRadioButton("KPHOTO-Local - nhanh, dùng GPU")
-        self.kphoto.setEnabled(kphoto_available)
-        if not kphoto_available:
-            self.kphoto.setToolTip("Chưa có model KPHOTO-Local trong Bili2YT_V3/models")
-        layout.addWidget(self.kphoto)
         # Machine default from config.local.json "srt_engine" (BILI2YT_SRT_ENGINE),
-        # else Whisper V3. A GPU-less machine can pin kphoto-local / rapidocr-v6.
+        # else Whisper V3. A GPU-less machine can pin "rapidocr-v6".
         default_engine = os.getenv("BILI2YT_SRT_ENGINE") or "whisper-v3"
-        if default_engine == "rapidocr-v6":
-            self.rapidocr.setChecked(True)
-        elif default_engine == "kphoto-local" and kphoto_available:
-            self.kphoto.setChecked(True)
-        else:
-            self.whisper.setChecked(True)
+        self.rapidocr.setChecked(default_engine == "rapidocr-v6")
+        self.whisper.setChecked(default_engine != "rapidocr-v6")
         self.engine_group = QButtonGroup(self)
         self.engine_group.addButton(self.whisper)
         self.engine_group.addButton(self.rapidocr)
-        self.engine_group.addButton(self.kphoto)
         layout.addWidget(QLabel("Chọn nguồn âm thanh:"))
         self.original_audio = QRadioButton("Âm thanh gốc từ video MP4 (đúng timeline)")
         self.original_audio.setChecked(True)
@@ -232,10 +222,7 @@ class SrtModelDialog(QDialog):
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
-        if self.rapidocr.isChecked():
-            engine = "rapidocr-v6"
-        else:
-            engine = "kphoto-local" if self.kphoto.isChecked() else "whisper-v3"
+        engine = "rapidocr-v6" if self.rapidocr.isChecked() else "whisper-v3"
         source_mode = "original" if self.original_audio.isChecked() else "vocals"
         return engine, source_mode, self.clean_transcript.isChecked()
 
@@ -867,7 +854,7 @@ class MainWindow(QMainWindow):
 
         self.engine = QComboBox()
         self.engine.addItem("Whisper V3", "whisper-v3")
-        self.engine.addItem("KPHOTO-Local", "kphoto-local")
+        self.engine.addItem("PP-OCRv6", "rapidocr-v6")
         self.target = QComboBox()
         self.target.addItem("English", "en")
 
@@ -1590,7 +1577,7 @@ class MainWindow(QMainWindow):
                 self.log_view.append("[OCR]" + text.split("]", 1)[-1])
                 self.log_view.ensureCursorVisible()
             return
-        elif text.startswith("[SrtSource]") or text.startswith("[SrtSync]") or text.startswith("KPHOTO-Local:"):
+        elif text.startswith("[SrtSource]") or text.startswith("[SrtSync]") or text.startswith("Whisper V3:"):
             self.log_view.append(text)
             self.log_view.ensureCursorVisible()
             return
@@ -1872,6 +1859,23 @@ class MainWindow(QMainWindow):
             for path, config in self.overlay_configs.items()
             if config.get("ocr_roi")
         } or None
+        # OCR-based SRT needs a per-video ROI. Only block the run when this
+        # machine is pinned to rapidocr-v6 (config.local.json "srt_engine").
+        if (steps.get("srt") and os.getenv("BILI2YT_SRT_ENGINE") == "rapidocr-v6"):
+            missing = [
+                path.name for path in self.root.rglob("*.mp4")
+                if "_Export" not in path.stem
+                and not self.overlay_configs.get(str(path.resolve()), {}).get("ocr_roi")
+            ]
+            if missing:
+                QMessageBox.information(
+                    self, "Thiếu khung OCR",
+                    "Máy này đặt srt_engine = rapidocr-v6. Hãy chọn từng video và "
+                    "vẽ Khung OCR trước:\n\n" + "\n".join(missing[:12])
+                    + ("\n..." if len(missing) > 12 else ""),
+                )
+                self._auto_running_steps = set()
+                return
         overlay_configs = (
             {path: dict(config) for path, config in self.overlay_configs.items()}
             if steps.get("export") else None
@@ -1895,8 +1899,7 @@ class MainWindow(QMainWindow):
         if self.root == Path.cwd() or not self.root.exists():
             QMessageBox.warning(self, "Chưa chọn thư mục", "Hãy chọn thư mục tổng trước khi tạo SRT.")
             return
-        kphoto = (Path(__file__).parent / "models" / "kphoto-local" / "zh" / "zh" / "model.pt").is_file()
-        dialog = SrtModelDialog(kphoto, self)
+        dialog = SrtModelDialog(self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         engine, source_mode, clean_transcript = dialog.values()

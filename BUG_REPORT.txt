@@ -22,3 +22,56 @@ Log loi:
 Trang thai: Chua xu ly
 
 
+
+[BUG-002]
+Thoi gian: 2026-08-31T23:58:00+07:00
+Chuc nang: Lỗi / tac vu dang chay
+Video hoac thu muc: D:\PHIM TRUNG\30.08\30.08.1
+Ket qua thuc te: Tac vu that bai
+Ket qua mong muon: Tac vu hoan tat
+Log loi: Lỗi dịch: gemini_api_key sai hoặc hết hạn — cập nhật trong config.local.json.  ·  HTTP 401: {"error":{"code":"INVALID_API_KEY","message":"Invalid API key.","type":"authentication_error"}} [translator.py:375]
+Trang thai: Chua xu ly
+
+[BUG-003]
+Thoi gian: 2026-09-03T02:17:49+07:00
+Chuc nang: Lỗi / tac vu dang chay
+Video hoac thu muc: D:\PHIM TRUNG\03.09
+Ket qua thuc te: Tac vu that bai
+Ket qua mong muon: Tac vu hoan tat
+Log loi: list index out of range
+Trang thai: Chua xu ly
+
+[BUG-004]
+Thoi gian: 2026-09-06T18:54:37+07:00
+Chuc nang: Lỗi / tac vu dang chay
+Video hoac thu muc: D:\PHIM TRUNG\06
+Ket qua thuc te: Tac vu that bai
+Ket qua mong muon: Tac vu hoan tat
+Log loi: Không tải được video nào (3/3 link lỗi):
+Link 1 (https://www.bilibili.com/video/BV1N8tG6JE4L/?spm_id_from=333.788.videopod.sections&vd_source=24747c3f0e48a3ca845e64109b71cb31): BBDown không tạo được MP4 cho link 1 (thoát mã 1); đã dọn 0 file tạm. Thử tải riêng link này bằng nút Tải để xem lỗi BBDown.
+Link 2 (https://www.bilibili.com/video/BV1sJt46pEue/?spm_id_from=333.337.search-card.all.click&vd_source=24747c3f0e48a3ca845e64109b71cb31): BBDown không tạo được MP4 cho link 2 (thoát mã 1); đã dọn 0 file tạm. Thử tải riêng link này bằng nút Tải để xem lỗi BBDown.
+Link 3 (https://www.bilibili.com/video/BV1BcbE6xEb8/?spm_id_from=333.337.search-card.all.click&vd_source=24747c3f0e48a3ca845e64109b71cb31): BBDown không tạo được MP4 cho link 3 (thoát mã 1); đã dọn 0 file tạm. Thử tải riêng link này bằng nút Tải để xem lỗi BBDown.
+Trang thai: Chua xu ly
+
+[BUG-005]
+Thoi gian: 2026-09-06T19:00:09+07:00
+Chuc nang: Lỗi / tac vu dang chay
+Video hoac thu muc: D:\PHIM TRUNG\06
+Ket qua thuc te: Tac vu that bai
+Ket qua mong muon: Tac vu hoan tat
+Log loi: Không tải được video nào (3/3 link lỗi):
+Link 1 (https://www.bilibili.com/video/BV1BcbE6xEb8/?spm_id_from=333.337.search-card.all.click&vd_source=24747c3f0e48a3ca845e64109b71cb31): Link 1: Bilibili chặn (风控/chưa đăng nhập). Mở lại hộp thoại Tải, bấm 'Đăng nhập QR' quét mã rồi tải lại. Đã dọn 0 file tạm.
+Link 2 (https://www.bilibili.com/video/BV1N8tG6JE4L/?spm_id_from=333.337.search-card.all.click&vd_source=24747c3f0e48a3ca845e64109b71cb31): Link 2: Bilibili chặn (风控/chưa đăng nhập). Mở lại hộp thoại Tải, bấm 'Đăng nhập QR' quét mã rồi tải lại. Đã dọn 0 file tạm.
+Link 3 (https://www.bilibili.com/video/BV1Giti6aEWm?spm_id_from=333.788.videopod.sections&vd_source=24747c3f0e48a3ca845e64109b71cb31): Link 3: Bilibili chặn (风控/chưa đăng nhập). Mở lại hộp thoại Tải, bấm 'Đăng nhập QR' quét mã rồi tải lại. Đã dọn 0 file tạm.
+Trang thai: Chua xu ly
+
+[BUG-006]
+Thoi gian: 2026-09-06T19:01:35+07:00
+Chuc nang: Lỗi / tac vu dang chay
+Video hoac thu muc: D:\PHIM TRUNG\06
+Ket qua thuc te: Tac vu that bai
+Ket qua mong muon: Tac vu hoan tat
+Log loi: Không tải được video nào (2/2 link lỗi):
+Link 1 (https://www.bilibili.com/video/BV1Giti6aEWm?spm_id_from=333.788.videopod.sections&vd_source=24747c3f0e48a3ca845e64109b71cb31): Link 1: Bilibili chặn (风控/chưa đăng nhập). Mở lại hộp thoại Tải, bấm 'Đăng nhập QR' quét mã rồi tải lại. Đã dọn 0 file tạm.
+Link 2 (https://www.bilibili.com/video/BV1N8tG6JE4L/?spm_id_from=333.337.search-card.all.click&vd_source=24747c3f0e48a3ca845e64109b71cb31): Link 2: Bilibili chặn (风控/chưa đăng nhập). Mở lại hộp thoại Tải, bấm 'Đăng nhập QR' quét mã rồi tải lại. Đã dọn 0 file tạm.
+Trang thai: Chua xu ly

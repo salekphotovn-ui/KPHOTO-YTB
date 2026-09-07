@@ -11,13 +11,11 @@ import sys
 import shutil
 import tempfile
 from pathlib import Path
-from config import FFMPEG_PATH, app_dir
+from config import FFMPEG_PATH
 
 
 _WHISPER_MODEL = None
 _WHISPER_MODEL_KEY = None
-_KPHOTO_MODEL = None
-_KPHOTO_MODEL_KEY = None
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".avi", ".webm")
 
 
@@ -120,72 +118,6 @@ def _whisper_transcribe_options() -> dict:
     }
 
 
-def _run_kphoto_local(audio_path: Path, log_callback) -> dict:
-    # The UI currently runs on Python 3.11 while the bundled ML packages are
-    # installed for Python 3.12. Run model loading in the matching interpreter.
-    if sys.version_info[:2] != (3, 12) and not os.getenv("BILI2YT_SRT_NATIVE"):
-        return _run_srt_native(audio_path, "kphoto-local", log_callback)
-    from funasr import AutoModel
-
-    # A frozen build reports __file__ under _internal, while the Setup extracts
-    # KPHOTO-YTB_models.zip next to the executable. Check both layouts plus the
-    # source tree.
-    candidate_roots = [
-        Path(__file__).resolve().parents[1] / "models" / "kphoto-local" / "zh",
-        app_dir() / "models" / "kphoto-local" / "zh",
-    ]
-    roots = list(dict.fromkeys(candidate_roots))
-    model_root = next((root for root in roots if (root / "zh" / "model.pt").is_file()), None)
-    if model_root is None:
-        raise RuntimeError("Chua co model KPHOTO-Local tieng Trung.")
-
-    try:
-        import torch
-        cuda_available = bool(torch.cuda.is_available())
-        device = "cuda:0" if cuda_available else "cpu"
-        if cuda_available:
-            log_callback(f"KPHOTO-Local: GPU CUDA ({torch.cuda.get_device_name(0)})")
-        else:
-            log_callback("KPHOTO-Local: CPU (khong phat hien CUDA)")
-    except Exception as exc:
-        device = "cpu"
-        log_callback(f"KPHOTO-Local: CPU (CUDA khong kha dung: {exc})")
-    global _KPHOTO_MODEL, _KPHOTO_MODEL_KEY
-    model_key = (str(model_root), device)
-    if _KPHOTO_MODEL is None or _KPHOTO_MODEL_KEY != model_key:
-        log_callback("KPHOTO-Local: dang nap model...")
-        _KPHOTO_MODEL = AutoModel(
-            model=str(model_root / "zh"),
-            vad_model=str(model_root / "v"),
-            punc_model=str(model_root / "p"),
-            device=device,
-            disable_update=True,
-        )
-        _KPHOTO_MODEL_KEY = model_key
-    else:
-        log_callback("KPHOTO-Local: tai su dung model da nap")
-    model = _KPHOTO_MODEL
-    # KPHOTO is fastest and most stable with its original 300-second batches;
-    # larger batches can increase memory pressure without improving throughput.
-    batch_size_s = 300
-    log_callback(f"KPHOTO-Local: batch {batch_size_s}s, dang nhan dang...")
-    output = model.generate(
-        input=str(audio_path),
-        batch_size_s=batch_size_s,
-        sentence_timestamp=True,
-        use_itn=True,
-    )
-    item = output[0] if output else {}
-    segments = []
-    for sentence in item.get("sentence_info") or []:
-        text = str(sentence.get("text") or "").strip()
-        start = float(sentence.get("start") or 0) / 1000
-        end = float(sentence.get("end") or 0) / 1000
-        if text and end > start:
-            segments.append({"start": start, "end": end, "text": text})
-    return {"language": "zh", "segments": segments}
-
-
 def _audio_duration(audio_path: Path) -> float:
     try:
         ffprobe = Path(FFMPEG_PATH).with_name("ffprobe.exe")
@@ -253,45 +185,6 @@ def _align_segments_to_video_timeline(
         f"he so={scale:.9f}."
     )
     return corrected
-
-
-def _run_kphoto_chunked(audio_path: Path, log_callback) -> dict:
-    """Transcribe long audio in overlapping chunks and restore global timestamps."""
-    duration = _audio_duration(audio_path)
-    # A single long generate() can stop reporting progress and occasionally
-    # stall in FunASR. Keep each request bounded and reuse the cached model.
-    if duration <= 10 * 60:
-        return _run_kphoto_local(audio_path, log_callback)
-
-    chunk_seconds = 10 * 60
-    overlap = 2.0
-    chunk_count = max(1, int((duration + chunk_seconds - 1) // chunk_seconds))
-    work_dir = Path(tempfile.mkdtemp(prefix="bili2yt_srt_", dir=str(audio_path.parent)))
-    combined = []
-    try:
-        log_callback(f"KPHOTO-Local: chia {duration / 60:.1f} phut thanh {chunk_count} doan ({chunk_seconds // 60} phut).")
-        for index in range(chunk_count):
-            start = max(0.0, index * chunk_seconds - (overlap if index else 0.0))
-            length = min(duration - start, chunk_seconds + (overlap if index and index + 1 < chunk_count else 0.0))
-            chunk_path = work_dir / f"chunk_{index:04d}.flac"
-            extracted = subprocess.run(
-                [FFMPEG_PATH, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", str(audio_path), "-c:a", "flac", str(chunk_path)],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600,
-            )
-            if extracted.returncode != 0:
-                raise RuntimeError(extracted.stderr[-800:] or "Khong tach duoc audio chunk.")
-            result = _run_kphoto_local(chunk_path, log_callback)
-            for segment in result.get("segments", []):
-                item = dict(segment)
-                item["start"] = float(item.get("start", 0.0)) + start
-                item["end"] = float(item.get("end", 0.0)) + start
-                if item["end"] > start + overlap or index == 0:
-                    combined.append(item)
-            log_callback(f"[SrtProgress] CHUNK {index + 1}/{chunk_count}")
-        combined.sort(key=lambda item: (item["start"], item["end"]))
-        return {"language": "zh", "segments": combined}
-    finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def _run_whisper_v3_long(audio_path: Path, log_callback, model, duration: float) -> dict:
@@ -383,8 +276,8 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
     if not use_cuda:
         log_callback(
             "Whisper V3: CANH BAO - chay CPU rat cham (video dai co the mat "
-            "nhieu gio). May khong co GPU nen dat srt_engine = 'kphoto-local' "
-            "trong config.local.json."
+            "nhieu gio). May khong co GPU nen dat srt_engine = 'rapidocr-v6' "
+            "trong config.local.json va ve Khung OCR cho video ngan."
         )
     global _WHISPER_MODEL, _WHISPER_MODEL_KEY
     model_key = (device, compute_type)
@@ -395,8 +288,8 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
         except Exception as exc:
             raise RuntimeError(
                 f"Khong nap duoc Whisper V3 large-v3 ({exc}). May nay nen dat "
-                "srt_engine = 'kphoto-local' (hoac 'rapidocr-v6') trong "
-                "config.local.json canh file exe."
+                "srt_engine = 'rapidocr-v6' trong config.local.json canh file "
+                "exe (roi ve Khung OCR cho tung video)."
             ) from exc
         _WHISPER_MODEL_KEY = model_key
     else:
@@ -514,7 +407,7 @@ def _extract_original_audio(video_path: Path, log_callback) -> tuple[Path, Path]
 
 
 def create_srt_batch(
-    root_path: str, engine: str = "kphoto-local", source_mode: str = "vocals",
+    root_path: str, engine: str = "whisper-v3", source_mode: str = "vocals",
     ocr_regions: dict | None = None, log_callback=print, clean_transcript: bool = False,
 ) -> list[str]:
     root = Path(root_path)
@@ -566,8 +459,6 @@ def create_srt_batch(
                 audio_path = source_path
             if engine == "rapidocr-v6":
                 pass
-            elif engine == "kphoto-local":
-                transcript = _run_kphoto_chunked(audio_path, log_callback)
             else:
                 transcript = _run_whisper_v3(audio_path, log_callback)
             segments = transcript.get("segments", [])
@@ -579,9 +470,7 @@ def create_srt_batch(
                 log_callback("[SrtSync] Dung timeline audio goc cua video, khong can co timestamp.")
             else:
                 segments = _align_segments_to_video_timeline(segments, source_path, log_callback)
-            language = str(
-                transcript.get("language") or ("zh" if engine == "kphoto-local" else "auto")
-            )
+            language = str(transcript.get("language") or "auto")
             language = language.lower().split("-")[0].split("_")[0]
             if language not in {"zh", "en", "vi", "ja", "ko", "th", "id", "fr", "de", "es", "pt", "ru", "ar", "auto"}:
                 language = "auto"

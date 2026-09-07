@@ -73,10 +73,10 @@ def load_local_provider_config() -> None:
         # Per-machine default SRT engine. The code default is whisper-v3, but a
         # machine without a capable GPU (Whisper large-v3 on CPU is unusably
         # slow, and the model is a ~3 GB HuggingFace download) can pin
-        # "kphoto-local" or "rapidocr-v6" here. Edit the exe-adjacent
-        # config.local.json - it survives auto-updates.
+        # "rapidocr-v6" here and draw an OCR box for each short video. Edit the
+        # exe-adjacent config.local.json - it survives auto-updates.
         srt_engine = str(data.get("srt_engine") or "").strip().lower()
-        if srt_engine in {"whisper-v3", "kphoto-local", "rapidocr-v6"}:
+        if srt_engine in {"whisper-v3", "rapidocr-v6"}:
             os.environ["BILI2YT_SRT_ENGINE"] = srt_engine
 
 # GitHub repository that owns the dedicated V3 releases.
