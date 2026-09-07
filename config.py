@@ -138,6 +138,14 @@ ARIA2_PATH = str(BIN_DIR / "aria2c.exe")
 WORK_DIR = app_dir() / "workspace"
 DOWNLOAD_DIR = str(WORK_DIR / "1_downloaded")
 DEFAULT_DFN_PRIORITY = "1080P 高清, 1080P, 720P 高清, 720P"
+# faster-whisper large-v3 (CTranslate2). Not bundled - fetched once from
+# HuggingFace via curl.exe (Windows cert store, no CERTIFICATE_VERIFY_FAILED)
+# into models/whisper-large-v3/ on the first Whisper run of a machine.
+WHISPER_LARGE_V3_BASE_URL = "https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/"
+WHISPER_LARGE_V3_FILES = (
+    "config.json", "preprocessor_config.json", "tokenizer.json",
+    "vocabulary.json", "model.bin",
+)
 # Default subtitle model selected in the V3 UI and automatic pipeline.
 TRANSLATOR_MODEL = "gemini-3.6-flash-high"
 # Default model used by the legacy tool.

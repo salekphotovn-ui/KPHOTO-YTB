@@ -1,6 +1,10 @@
 from __future__ import annotations
 import json, tempfile, time, zipfile, subprocess, os, sys
-from config import GITHUB_OWNER, GITHUB_REPO
+from pathlib import Path
+from config import (
+    GITHUB_OWNER, GITHUB_REPO, app_dir,
+    WHISPER_LARGE_V3_BASE_URL, WHISPER_LARGE_V3_FILES,
+)
 
 # Windows curl uses the machine certificate store (Schannel), avoiding
 # CERTIFICATE_VERIFY_FAILED on clean employee PCs where the embedded
@@ -49,6 +53,70 @@ def _curl_download_progress(url, target, total_bytes, progress_callback, timeout
     if ok and progress_callback:
         progress_callback(100)
     return ok
+
+
+_WHISPER_APPROX_BYTES = {"model.bin": 3_090_000_000}
+
+
+def whisper_large_v3_dir() -> str | None:
+    """Local faster-whisper large-v3 folder if it is already present."""
+    for base in (Path(__file__).resolve().parents[1], app_dir()):
+        d = base / "models" / "whisper-large-v3"
+        if (d / "model.bin").is_file() and (d / "tokenizer.json").is_file():
+            return str(d)
+    return None
+
+
+def ensure_whisper_large_v3(log_callback=None, progress_callback=None) -> str | None:
+    """Return a local large-v3 dir, fetching the 5 CTranslate2 files from
+    HuggingFace (via curl.exe) once. None -> caller should fall back to
+    faster-whisper's own HuggingFace download."""
+    def log(message):
+        (log_callback or print)(message)
+
+    found = whisper_large_v3_dir()
+    if found:
+        return found
+
+    # faster-whisper already cached the model from HuggingFace on this machine -
+    # let it use that, don't duplicate a 3 GB download.
+    hf_cache = (Path.home() / ".cache" / "huggingface" / "hub"
+                / "models--Systran--faster-whisper-large-v3")
+    if hf_cache.is_dir() and any(hf_cache.rglob("model.bin")):
+        return None
+
+    target = app_dir() / "models" / "whisper-large-v3"
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log(f"[Whisper] Khong tao duoc thu muc model: {exc}")
+        return None
+
+    log("[Whisper] May nay chua co model large-v3 - tai ~3GB tu HuggingFace "
+        "(chi lan dau, dung curl.exe cua Windows).")
+    for name in WHISPER_LARGE_V3_FILES:
+        dest = target / name
+        if dest.is_file() and dest.stat().st_size > 0:
+            continue
+        url = WHISPER_LARGE_V3_BASE_URL + name
+        approx = _WHISPER_APPROX_BYTES.get(name, 0)
+        log(f"[Whisper] Tai {name}...")
+        if approx and progress_callback:
+            ok = _curl_download_progress(url, str(dest), approx, progress_callback, timeout=7200)
+        else:
+            ok = _curl_to_file(url, str(dest), timeout=7200)
+        if not ok:
+            log(f"[Whisper] Tai {name} that bai - thu tai truc tiep qua faster-whisper.")
+            try:
+                dest.unlink()
+            except OSError:
+                pass
+            return None
+
+    if (target / "model.bin").is_file():
+        log(f"[Whisper] Da cai model large-v3: {target}")
+        return str(target)
+    return None
 
 
 def latest_release() -> dict | None:

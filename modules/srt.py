@@ -279,12 +279,17 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
             "nhieu gio). May khong co GPU nen dat srt_engine = 'rapidocr-v6' "
             "trong config.local.json va ve Khung OCR cho video ngan."
         )
+    try:
+        from .updater import ensure_whisper_large_v3
+    except ImportError:
+        from updater import ensure_whisper_large_v3
+    model_id = ensure_whisper_large_v3(log_callback) or "large-v3"
     global _WHISPER_MODEL, _WHISPER_MODEL_KEY
-    model_key = (device, compute_type)
+    model_key = (device, compute_type, model_id)
     if _WHISPER_MODEL is None or _WHISPER_MODEL_KEY != model_key:
-        log_callback("Whisper V3: dang nap model large-v3 (lan dau tai ~3GB tu HuggingFace)...")
+        log_callback("Whisper V3: dang nap model large-v3...")
         try:
-            _WHISPER_MODEL = WhisperModel("large-v3", device=device, compute_type=compute_type)
+            _WHISPER_MODEL = WhisperModel(model_id, device=device, compute_type=compute_type)
         except Exception as exc:
             raise RuntimeError(
                 f"Khong nap duoc Whisper V3 large-v3 ({exc}). May nay nen dat "

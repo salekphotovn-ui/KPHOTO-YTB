@@ -54,7 +54,10 @@ from modules.exporter import export_folder
 from modules.downloader import bbdown_login, download_multiple, login_session_status
 from modules.rename import auto_rename_folder
 from modules.concat import concat_videos
-from modules.updater import latest_release, download_and_install
+from modules.updater import (
+    latest_release, download_and_install,
+    ensure_whisper_large_v3, whisper_large_v3_dir,
+)
 from config import VERSION
 
 
@@ -272,8 +275,8 @@ class TaskWorker(QObject):
         try:
             call_kwargs = dict(self.kwargs)
             call_kwargs["log_callback"] = self.log.emit
-            if self.task in (export_folder, mux_and_export,
-                             run_auto_pipeline, run_download_and_auto_pipeline):
+            if self.task in (export_folder, mux_and_export, run_auto_pipeline,
+                             run_download_and_auto_pipeline, ensure_whisper_large_v3):
                 call_kwargs.setdefault("progress_callback", self.progress.emit)
             result = self.task(*self.args, **call_kwargs)
             self.done.emit(result)
@@ -596,6 +599,27 @@ class MainWindow(QMainWindow):
         self.resize(1200, 780)
         self._build_ui_v3()
         QTimer.singleShot(1500, self._check_for_update)
+        QTimer.singleShot(3000, self._check_whisper_model)
+
+    def _check_whisper_model(self):
+        """On a Whisper-V3 machine that has never fetched large-v3, offer to
+        download it now instead of stalling the first 'Tạo SRT' run."""
+        if os.getenv("BILI2YT_SRT_ENGINE", "whisper-v3") == "rapidocr-v6":
+            return
+        if whisper_large_v3_dir():
+            return
+        hf_cache = (Path.home() / ".cache" / "huggingface" / "hub"
+                    / "models--Systran--faster-whisper-large-v3")
+        if hf_cache.exists():
+            return
+        answer = QMessageBox.question(
+            self, "Model Whisper V3",
+            "Máy này chưa có model Whisper V3 (~3GB).\n\nTải ngay bây giờ?\n"
+            "(Bỏ qua thì lần đầu bấm 'Tạo SRT' nó sẽ tự tải.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.start_task(ensure_whisper_large_v3)
 
     def _check_for_update(self):
         """Offer an in-place update through a prompt + a download progress bar."""
