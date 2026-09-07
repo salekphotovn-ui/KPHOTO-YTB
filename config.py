@@ -96,7 +96,39 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def app_settings_path() -> Path:
+    """Per-machine UI preferences saved from the app. Not committed, not
+    bundled, and left untouched by auto-updates (xcopy only overwrites files
+    that ship in the update)."""
+    return app_dir() / "app_settings.json"
+
+
+def load_app_settings() -> dict:
+    try:
+        data = json.loads(app_settings_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_app_setting(key: str, value) -> None:
+    data = load_app_settings()
+    data[key] = value
+    try:
+        app_settings_path().write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
 load_local_provider_config()
+
+# A choice saved from the "Tạo SRT" dialog wins over config.local.json so each
+# machine keeps its own engine across restarts.
+_ui_srt_engine = str(load_app_settings().get("srt_engine") or "").strip().lower()
+if _ui_srt_engine in {"whisper-v3", "rapidocr-v6"}:
+    os.environ["BILI2YT_SRT_ENGINE"] = _ui_srt_engine
 
 
 BIN_DIR = app_dir() / "bin"

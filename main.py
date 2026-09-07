@@ -218,13 +218,15 @@ class SrtModelDialog(QDialog):
         )
         self.clean_transcript.setChecked(True)
         layout.addWidget(self.clean_transcript)
+        self.save_default = QCheckBox("Lưu engine làm mặc định cho máy này (nhớ sau khi tắt tool)")
+        layout.addWidget(self.save_default)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
         engine = "rapidocr-v6" if self.rapidocr.isChecked() else "whisper-v3"
         source_mode = "original" if self.original_audio.isChecked() else "vocals"
-        return engine, source_mode, self.clean_transcript.isChecked()
+        return engine, source_mode, self.clean_transcript.isChecked(), self.save_default.isChecked()
 
 
 class TranslateDialog(QDialog):
@@ -1902,7 +1904,12 @@ class MainWindow(QMainWindow):
         dialog = SrtModelDialog(self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        engine, source_mode, clean_transcript = dialog.values()
+        engine, source_mode, clean_transcript, save_default = dialog.values()
+        if save_default:
+            from config import save_app_setting
+            save_app_setting("srt_engine", engine)
+            os.environ["BILI2YT_SRT_ENGINE"] = engine
+            self.write_log(f"[UI] Đã lưu engine mặc định cho máy này: {engine}")
         ocr_regions = None
         if engine == "rapidocr-v6":
             ocr_regions = {
