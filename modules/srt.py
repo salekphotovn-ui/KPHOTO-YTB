@@ -380,11 +380,24 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
     device = "cuda" if use_cuda else "cpu"
     compute_type = "float16" if use_cuda else "int8"
     log_callback(f"Whisper V3: {'GPU CUDA' if use_cuda else 'CPU'}")
+    if not use_cuda:
+        log_callback(
+            "Whisper V3: CANH BAO - chay CPU rat cham (video dai co the mat "
+            "nhieu gio). May khong co GPU nen dat srt_engine = 'kphoto-local' "
+            "trong config.local.json."
+        )
     global _WHISPER_MODEL, _WHISPER_MODEL_KEY
     model_key = (device, compute_type)
     if _WHISPER_MODEL is None or _WHISPER_MODEL_KEY != model_key:
-        log_callback("Whisper V3: dang nap model large-v3...")
-        _WHISPER_MODEL = WhisperModel("large-v3", device=device, compute_type=compute_type)
+        log_callback("Whisper V3: dang nap model large-v3 (lan dau tai ~3GB tu HuggingFace)...")
+        try:
+            _WHISPER_MODEL = WhisperModel("large-v3", device=device, compute_type=compute_type)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Khong nap duoc Whisper V3 large-v3 ({exc}). May nay nen dat "
+                "srt_engine = 'kphoto-local' (hoac 'rapidocr-v6') trong "
+                "config.local.json canh file exe."
+            ) from exc
         _WHISPER_MODEL_KEY = model_key
     else:
         log_callback("Whisper V3: tai su dung model large-v3 da nap")

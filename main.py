@@ -94,10 +94,13 @@ def run_auto_pipeline(folder: str, steps: dict[str, bool], log_callback=None, oc
         log("[AutoStage] Đang tách vocal")
         separate_folder(folder, log_callback=log_callback)
     if steps.get("srt"):
-        log("[AutoStage] Đang tạo SRT bằng Whisper V3")
+        srt_engine = os.getenv("BILI2YT_SRT_ENGINE") or "whisper-v3"
+        engine_label = {"whisper-v3": "Whisper V3", "kphoto-local": "KPHOTO-Local",
+                        "rapidocr-v6": "PP-OCRv6"}.get(srt_engine, srt_engine)
+        log(f"[AutoStage] Đang tạo SRT bằng {engine_label}")
         create_srt_batch(
-            folder, engine="whisper-v3", source_mode="original",
-            clean_transcript=True, log_callback=log_callback,
+            folder, engine=srt_engine, source_mode="original",
+            clean_transcript=True, ocr_regions=ocr_regions, log_callback=log_callback,
         )
     if steps.get("translate"):
         log("[AutoStage] Đang dịch Gemini 3.6 Flash-High")
@@ -189,7 +192,6 @@ class SrtModelDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn model nhận dạng tiếng Trung:"))
         self.whisper = QRadioButton("Whisper V3 (large-v3) - chất lượng cao")
-        self.whisper.setChecked(True)
         layout.addWidget(self.whisper)
         self.rapidocr = QRadioButton("PP-OCRv6 Small - đọc sub Trung trên hình, nhanh và đúng timeline")
         layout.addWidget(self.rapidocr)
@@ -199,6 +201,15 @@ class SrtModelDialog(QDialog):
         if not kphoto_available:
             self.kphoto.setToolTip("Chưa có model KPHOTO-Local trong Bili2YT_V3/models")
         layout.addWidget(self.kphoto)
+        # Machine default from config.local.json "srt_engine" (BILI2YT_SRT_ENGINE),
+        # else Whisper V3. A GPU-less machine can pin kphoto-local / rapidocr-v6.
+        default_engine = os.getenv("BILI2YT_SRT_ENGINE") or "whisper-v3"
+        if default_engine == "rapidocr-v6":
+            self.rapidocr.setChecked(True)
+        elif default_engine == "kphoto-local" and kphoto_available:
+            self.kphoto.setChecked(True)
+        else:
+            self.whisper.setChecked(True)
         self.engine_group = QButtonGroup(self)
         self.engine_group.addButton(self.whisper)
         self.engine_group.addButton(self.rapidocr)
