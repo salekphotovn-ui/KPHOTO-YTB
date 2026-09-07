@@ -230,11 +230,16 @@ class SrtModelDialog(QDialog):
 
 
 class TranslateDialog(QDialog):
-    def __init__(self, languages: list[str], parent=None):
+    def __init__(self, languages: list[str], only_video_name: str | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Dịch phụ đề")
         self.resize(520, 360)
         layout = QVBoxLayout(self)
+        self.only_video = None
+        if only_video_name:
+            self.only_video = QCheckBox(f"Chỉ dịch video đang chọn: {only_video_name}")
+            self.only_video.setChecked(True)
+            layout.addWidget(self.only_video)
         layout.addWidget(QLabel("Chọn ngôn ngữ nguồn:"))
         self.source = QComboBox(); self.source.addItems(languages); layout.addWidget(self.source)
         if self.source.findText("zh") >= 0:
@@ -249,7 +254,8 @@ class TranslateDialog(QDialog):
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addWidget(buttons)
 
     def values(self):
-        return self.source.currentText(), self.target.currentData(), "gemini-3.6-flash-high"
+        only_selected = bool(self.only_video and self.only_video.isChecked())
+        return self.source.currentText(), self.target.currentData(), "gemini-3.6-flash-high", only_selected
 
 
 class TaskWorker(QObject):
@@ -1901,12 +1907,21 @@ class MainWindow(QMainWindow):
         if not languages:
             QMessageBox.warning(self, "Không có SRT", "Không tìm thấy file SRT trong thư mục đã chọn.")
             return
-        dialog = TranslateDialog(languages, self)
+        current_item = self.movies.currentItem()
+        video_folder = None
+        if current_item is not None:
+            stored = current_item.data(Qt.ItemDataRole.UserRole)
+            if stored:
+                video_folder = Path(stored).parent
+        dialog = TranslateDialog(
+            languages, current_item.text() if video_folder is not None else None, self
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        source, target, model = dialog.values()
+        source, target, model, only_selected = dialog.values()
+        root_arg = str(video_folder) if (only_selected and video_folder is not None) else str(self.root)
         self.start_task(
-            translate_srt_batch, str(self.root), target, model,
+            translate_srt_batch, root_arg, target, model,
             os.getenv("GEMINI_API_KEY", ""), source_language=source,
         )
 
