@@ -95,6 +95,14 @@ def package(minimal: bool = False, code_only: bool = False) -> None:
         cfg = INTERNAL / "config.local.json"
         if cfg.is_file():
             update_items.append((cfg, "_internal/config.local.json"))
+        # faster-whisper's silero VAD asset (~1.2 MB). The exe PYZ carries the
+        # faster_whisper 1.2.1 code, but a v0.3.11-era install's
+        # _internal/faster_whisper/assets/ is missing silero_vad_v6.onnx, so
+        # vad_filter=True dies with ONNX NO_SUCHFILE. Ship it in the code-only
+        # zip too; xcopy merges it in and VAD works without a runtime download.
+        vad = INTERNAL / "faster_whisper" / "assets" / "silero_vad_v6.onnx"
+        if vad.is_file():
+            update_items.append((vad, "_internal/faster_whisper/assets/silero_vad_v6.onnx"))
     else:
         update_items += list(_tree(INTERNAL, "_internal", skip_top={"torch"}))
         update_items += list(_tree(ROOT / "bin", "bin"))
