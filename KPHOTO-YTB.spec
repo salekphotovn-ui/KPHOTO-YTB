@@ -25,6 +25,10 @@ a = Analysis(
     datas=[
         ('models', 'models'),
         *collect_data_files('rapidocr', include_py_files=False),
+        # faster-whisper ships silero_vad_v6.onnx under faster_whisper/assets;
+        # without this the v0.3.11-style gap (vad_filter dies with ONNX
+        # NO_SUCHFILE) comes back on a fresh full build.
+        *collect_data_files('faster_whisper'),
         *_audio_separator_data,
         *_local_config,
     ],
