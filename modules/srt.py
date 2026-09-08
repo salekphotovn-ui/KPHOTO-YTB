@@ -118,6 +118,36 @@ def _whisper_transcribe_options() -> dict:
     }
 
 
+def _transcribe_with_vad_fallback(model, audio: str, log_callback):
+    """Run model.transcribe, retrying without VAD if the silero asset is absent.
+
+    Some frozen builds (e.g. the v0.3.11 install) shipped faster-whisper without
+    its bundled ``silero_vad_v6.onnx``. ``vad_filter=True`` then dies with an
+    ONNXRuntime NO_SUCHFILE and every video fails. Fall back to a plain
+    transcribe so SRT creation still succeeds - hallucination_silence_threshold
+    and condition_on_previous_text=False already curb silence hallucinations.
+    """
+    options = _whisper_transcribe_options()
+    try:
+        return model.transcribe(audio, **options)
+    except Exception as exc:
+        blob = str(exc).lower()
+        vad_missing = (
+            "silero" in blob
+            or ("vad" in blob and ("onnx" in blob or "no_suchfile" in blob))
+            or ("onnxruntime" in blob and "no_suchfile" in blob)
+        )
+        if not vad_missing:
+            raise
+        log_callback(
+            "Whisper V3: thieu silero VAD asset (silero_vad_v6.onnx) - "
+            "chay lai khong dung VAD."
+        )
+        options.pop("vad_filter", None)
+        options.pop("vad_parameters", None)
+        return model.transcribe(audio, **options)
+
+
 def _audio_duration(audio_path: Path) -> float:
     try:
         ffprobe = Path(FFMPEG_PATH).with_name("ffprobe.exe")
@@ -233,7 +263,7 @@ def _run_whisper_v3_long(audio_path: Path, log_callback, model, duration: float)
             if extracted.returncode != 0:
                 raise RuntimeError(extracted.stderr[-800:] or "Khong tach duoc audio chunk Whisper.")
             try:
-                iterator, _info = model.transcribe(str(chunk_path), **_whisper_transcribe_options())
+                iterator, _info = _transcribe_with_vad_fallback(model, str(chunk_path), log_callback)
                 for segment in iterator:
                     for local_cue in _split_whisper_segment(segment):
                         item = dict(local_cue)
@@ -303,7 +333,7 @@ def _run_whisper_v3(audio_path: Path, log_callback) -> dict:
     duration = _audio_duration(audio_path)
     if duration >= 60 * 60:
         return _run_whisper_v3_long(audio_path, log_callback, model, duration)
-    segments_iter, info = model.transcribe(str(audio_path), **_whisper_transcribe_options())
+    segments_iter, info = _transcribe_with_vad_fallback(model, str(audio_path), log_callback)
     segments = []
     segment_count = 0
     last_percent = -1
