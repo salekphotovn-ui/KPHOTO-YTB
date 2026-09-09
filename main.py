@@ -1612,6 +1612,23 @@ class MainWindow(QMainWindow):
             if percent in (0, 100) or percent % 5 == 0:
                 self.log_view.append(f"[Whisper V3] {percent}%")
             return
+        clean_match = re.search(r"\[SrtProgress\]\s+CLEAN\s+(\d+)\/(\d+)", text, re.IGNORECASE)
+        if clean_match:
+            # The Gemini transcript clean-up runs AFTER Whisper (bar already at
+            # 100%) and, on a long video, for hours. Show every batch so the log
+            # is not dead and the bar reflects this phase, not Whisper's.
+            done, total = int(clean_match.group(1)), max(1, int(clean_match.group(2)))
+            percent = round(done * 100 / total)
+            self.progress.setValue(max(1, percent))
+            self.log_view.append(f"[Làm sạch Gemini] {done}/{total} câu ({percent}%)")
+            self.log_view.ensureCursorVisible()
+            return
+        elif text.startswith("[CleanSRT]"):
+            if "bằng Gemini" in text:
+                self.progress.setValue(1)  # new phase, don't leave Whisper's 100%
+            self.log_view.append("[Làm sạch Gemini]" + text.split("]", 1)[-1])
+            self.log_view.ensureCursorVisible()
+            return
         ocr_match = re.search(r"\[SrtProgress\]\s+OCR_PERCENT\s+(\d+)", text, re.IGNORECASE)
         if ocr_match:
             # Bar only; per-file start/done + folder summary keep the log short.

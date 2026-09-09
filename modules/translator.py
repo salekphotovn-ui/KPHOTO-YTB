@@ -412,12 +412,15 @@ def clean_transcript_srt(srt_path, api_key: str = "", log_callback=None, batch_s
     except OSError:
         pass
 
-    log(f"[CleanSRT] {path.name}: làm sạch {len(cues)} câu bằng Gemini...")
+    total_batches = (len(cues) + batch_size - 1) // batch_size
+    log(f"[CleanSRT] {path.name}: làm sạch {len(cues)} câu bằng Gemini "
+        f"({total_batches} lượt × {batch_size} câu, chạy tuần tự)...")
     texts = [cue["text"] for cue in cues]
     changed = 0
-    for start in range(0, len(cues), batch_size):
+    for batch_no, start in enumerate(range(0, len(cues), batch_size), 1):
         chunk = list(range(start, min(start + batch_size, len(cues))))
         items = [{"id": i, "text": cues[i]["text"]} for i in chunk]
+        log(f"[CleanSRT] Lượt {batch_no}/{total_batches} (câu {chunk[0] + 1}-{chunk[-1] + 1})...")
         try:
             fixed = _clean_batch(items, api_key, log=log_callback)
         except GeminiConfigError:
