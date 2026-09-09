@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
     QSlider, QListWidgetItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsProxyWidget, QGraphicsRectItem, QGraphicsPixmapItem,
     QGraphicsBlurEffect, QButtonGroup, QSpinBox, QFontComboBox, QColorDialog,
+    QLineEdit,
 )
 
 from modules.separator import separate_folder
@@ -496,6 +497,15 @@ class DownloadDialog(QDialog):
         login.clicked.connect(self.login)
         row.addWidget(login)
         layout.addLayout(row)
+
+        cdn_row = QHBoxLayout()
+        cdn_row.addWidget(QLabel("CDN mirror:"))
+        self.upos_host = QLineEdit(os.getenv("BILI2YT_BBDOWN_UPOS_HOST", ""))
+        self.upos_host.setPlaceholderText(
+            "bỏ trống = tự động; máy bị bóp băng thông điền vd upos-sz-mirrorcos.bilivideo.com"
+        )
+        cdn_row.addWidget(self.upos_host, 1)
+        layout.addLayout(cdn_row)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -544,7 +554,8 @@ class DownloadDialog(QDialog):
         super().accept()
 
     def values(self):
-        return [line.strip() for line in self.urls.toPlainText().splitlines() if line.strip()], self.dfn.currentData()
+        links = [line.strip() for line in self.urls.toPlainText().splitlines() if line.strip()]
+        return links, self.dfn.currentData(), self.upos_host.text().strip()
 
 
 class ExportDialog(QDialog):
@@ -1495,12 +1506,22 @@ class MainWindow(QMainWindow):
         dialog = DownloadDialog(self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        links, dfn_priority = dialog.values()
+        links, dfn_priority, upos_host = dialog.values()
         if not links:
             return
+        # Persist the CDN mirror per machine (survives restart + auto-update) and
+        # apply it now so this batch already uses it.
+        from config import save_app_setting
+        save_app_setting("bbdown_upos_host", upos_host)
+        if upos_host:
+            os.environ["BILI2YT_BBDOWN_UPOS_HOST"] = upos_host
+        else:
+            os.environ.pop("BILI2YT_BBDOWN_UPOS_HOST", None)
         self.pending_download_links = links
         self.pending_download_dfn = dfn_priority
         self.write_log(f"[Download] Đã nhận dạng {len(links)} link")
+        if upos_host:
+            self.write_log(f"[Download] CDN mirror cố định: {upos_host}")
         self.write_log("[Download] Đã xếp hàng, bấm Chạy tự động để bắt đầu tải")
 
     def write_log(self, message):

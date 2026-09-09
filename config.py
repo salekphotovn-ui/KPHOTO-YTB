@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 APP_NAME = "KPHOTO-YTB"
-VERSION = "0.3.21"
+VERSION = "0.3.22"
 # Release tag that hosts the large, rarely-changing bootstrap payloads
 # (bin / models / runtime). The versioned executable update is published
 # separately as KPHOTO-YTB_update.zip on the release matching VERSION.
@@ -78,6 +78,14 @@ def load_local_provider_config() -> None:
         srt_engine = str(data.get("srt_engine") or "").strip().lower()
         if srt_engine in {"whisper-v3", "rapidocr-v6"}:
             os.environ["BILI2YT_SRT_ENGINE"] = srt_engine
+        # Per-machine UPOS CDN mirror for BBDown. Bilibili's playurl API hands
+        # back one fixed CDN host; some mirrors are bandwidth-throttled or
+        # unreachable for a given ISP, which stalls large downloads. A machine
+        # can pin a known-good mirror here (e.g. upos-sz-mirrorcos.bilivideo.com)
+        # and the downloader adds --upos-host <host> --force-replace-host.
+        upos_host = str(data.get("bbdown_upos_host") or "").strip()
+        if upos_host:
+            os.environ["BILI2YT_BBDOWN_UPOS_HOST"] = upos_host
 
 # GitHub repository that owns the dedicated V3 releases.
 GITHUB_OWNER = "salekphotovn-ui"
@@ -126,9 +134,15 @@ load_local_provider_config()
 
 # A choice saved from the "Tạo SRT" dialog wins over config.local.json so each
 # machine keeps its own engine across restarts.
-_ui_srt_engine = str(load_app_settings().get("srt_engine") or "").strip().lower()
+_app_settings = load_app_settings()
+_ui_srt_engine = str(_app_settings.get("srt_engine") or "").strip().lower()
 if _ui_srt_engine in {"whisper-v3", "rapidocr-v6"}:
     os.environ["BILI2YT_SRT_ENGINE"] = _ui_srt_engine
+
+# UPOS mirror typed into the "Tải video" dialog, same precedence idea.
+_ui_upos_host = str(_app_settings.get("bbdown_upos_host") or "").strip()
+if _ui_upos_host:
+    os.environ["BILI2YT_BBDOWN_UPOS_HOST"] = _ui_upos_host
 
 
 BIN_DIR = app_dir() / "bin"

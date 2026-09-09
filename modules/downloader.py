@@ -86,6 +86,43 @@ _RISK_HINTS = (
     "风控", "请求被拦截", "账号未登录", "请先登录", "大会员", "会员专享",
 )
 
+# "P1: [...]" / "P2: [...]" lines from `BBDown --only-show-info`; only printed
+# when a video has more than one 分P. The timestamp prefix and the Chinese
+# summary line are codepage-mangled over a pipe, but this ASCII marker survives.
+_PART_LINE_RE = re.compile(r"\bP(\d+):\s*\[")
+_PAGE_PARAM_RE = re.compile(r"[?&]p=\d+(?:&|$)")
+
+
+def _extra_bbdown_args() -> list[str]:
+    """Per-machine BBDown tweaks resolved by config.py into env vars. Currently
+    just a fixed UPOS CDN mirror for machines whose default mirror is throttled.
+    Not --multi-thread / --force-http - those stalled long downloads."""
+    host = os.getenv("BILI2YT_BBDOWN_UPOS_HOST", "").strip()
+    if host:
+        return ["--upos-host", host, "--force-replace-host"]
+    return []
+
+
+def _probe_part_count(url: str) -> int:
+    """Number of 分P pages for a Bilibili video (1 when single/unknown/EP).
+
+    Uses `BBDown --only-show-info`, a quick metadata call with no download, so a
+    multi-part video can be fetched one part per plain BBDown run instead of one
+    giant `-p ALL` run where an early part failing loses the rest.
+    """
+    if _PAGE_PARAM_RE.search(url):
+        return 1  # caller already pinned a page
+    try:
+        out = subprocess.run(
+            [BBDOWN_PATH, url, "--only-show-info", *_extra_bbdown_args()],
+            cwd=BBDOWN_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", timeout=90,
+        ).stdout or ""
+    except (OSError, subprocess.TimeoutExpired):
+        return 1
+    parts = {int(n) for n in _PART_LINE_RE.findall(out)}
+    return max(parts) if len(parts) > 1 else 1
+
 def bbdown_login(log_callback=None):
     def log(msg):
         (log_callback or print)(msg)
@@ -145,9 +182,12 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     # where files land and which quality; --ffmpeg-path just points at the
     # bundled ffmpeg so the merge step never fails for lack of it. No
     # --multi-thread / --force-http: those are what stalled long downloads.
+    extra = _extra_bbdown_args()
     cmd = [BBDOWN_PATH, url, "--work-dir", output_dir,
-           "--dfn-priority", dfn_priority, "--ffmpeg-path", FFMPEG_PATH]
+           "--dfn-priority", dfn_priority, "--ffmpeg-path", FFMPEG_PATH, *extra]
     log("[BBDown] BBDown 1.6.3 (đơn luồng, như chạy tay)")
+    if extra:
+        log(f"[BBDown] Dùng CDN mirror cố định: {extra[1]}")
     log(f"[BBDown] Đang tải link {progress_index}/{progress_total}")
     log(f"[DownloadProgress] START i={progress_index} total={progress_total}")
 
@@ -235,8 +275,36 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
         + ("" if process.returncode == 0 else f" (BBDown thoát mã {process.returncode})"))
     return new_files
 
+def _expand_multipart(urls: list[str], log_callback=None) -> list[str]:
+    """Turn a bare multi-分P link into one `...?p=k` link per page.
+
+    BBDown names the output subfolder after the video title, so every page lands
+    in the same folder and the auto pipeline's concat step joins them into one
+    video. Downloading page by page also means a failed page (e.g. a 10-hour P1
+    on a throttled CDN) no longer takes the other pages down with it.
+    """
+    out: list[str] = []
+    for raw in urls:
+        url = raw.strip()
+        if not url:
+            continue
+        count = _probe_part_count(url)
+        if count > 1:
+            if log_callback:
+                log_callback(
+                    f"[BBDown] Link nhiều phần: {count} phần — tải lần lượt P1..P{count} "
+                    "(cùng thư mục, tool sẽ tự ghép)"
+                )
+            sep = "&" if "?" in url else "?"
+            out.extend(f"{url}{sep}p={page}" for page in range(1, count + 1))
+        else:
+            out.append(url)
+    return out
+
+
 def download_multiple(urls: list[str], dfn_priority: str = DEFAULT_DFN_PRIORITY,
                       output_dir: str = None, log_callback=None) -> list[str]:
+    urls = _expand_multipart(urls, log_callback)
     results = []
     failures = []
     for i, url in enumerate(urls, 1):
