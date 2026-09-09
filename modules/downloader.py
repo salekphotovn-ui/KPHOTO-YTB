@@ -178,14 +178,18 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
         (log_callback or print)(msg)
     before = _snapshot(output_dir)
     baseline_bytes = _tree_bytes(output_dir)
-    # Match a plain `BBDown <url>` run. --work-dir / --dfn-priority only decide
-    # where files land and which quality; --ffmpeg-path just points at the
-    # bundled ffmpeg so the merge step never fails for lack of it. No
-    # --multi-thread / --force-http: those are what stalled long downloads.
+    # BBDown 1.6.3 turns --multi-thread ON by default; its segmented downloader
+    # thrashes on a throttled CDN and stalls long videos at ~80%. The user's
+    # own working tai-video.bat runs `BBDown "%link%" --multi-thread false` and
+    # pulls 10-hour videos down fine, so match that: one sequential connection.
+    # This is the OPPOSITE of threading machinery, not a re-add of it.
+    # --work-dir / --dfn-priority only pick where files land and which quality;
+    # --ffmpeg-path points at the bundled ffmpeg so the merge never fails.
     extra = _extra_bbdown_args()
     cmd = [BBDOWN_PATH, url, "--work-dir", output_dir,
-           "--dfn-priority", dfn_priority, "--ffmpeg-path", FFMPEG_PATH, *extra]
-    log("[BBDown] BBDown 1.6.3 (đơn luồng, như chạy tay)")
+           "--dfn-priority", dfn_priority, "--ffmpeg-path", FFMPEG_PATH,
+           "--multi-thread", "false", *extra]
+    log("[BBDown] BBDown 1.6.3 (--multi-thread false — đơn luồng như tai-video.bat)")
     if extra:
         log(f"[BBDown] Dùng CDN mirror cố định: {extra[1]}")
     log(f"[BBDown] Đang tải link {progress_index}/{progress_total}")
