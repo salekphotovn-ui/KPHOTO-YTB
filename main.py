@@ -502,7 +502,7 @@ class DownloadDialog(QDialog):
         cdn_row.addWidget(QLabel("CDN mirror:"))
         self.upos_host = QLineEdit(os.getenv("BILI2YT_BBDOWN_UPOS_HOST", ""))
         self.upos_host.setPlaceholderText(
-            "bỏ trống = tự động; máy bị bóp băng thông điền vd upos-sz-mirrorcos.bilivideo.com"
+            "bỏ trống = tự đổi mirror khi lỗi; điền để khoá 1 mirror (vd upos-sz-mirrorcos.bilivideo.com)"
         )
         cdn_row.addWidget(self.upos_host, 1)
         layout.addLayout(cdn_row)

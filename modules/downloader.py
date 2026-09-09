@@ -169,31 +169,34 @@ def _tree_bytes(root):
             pass
     return total
 
-def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
-                   output_dir: str = None, log_callback=None,
-                   progress_index: int = 1, progress_total: int = 1) -> list[str]:
-    output_dir = output_dir or DOWNLOAD_DIR
-    os.makedirs(output_dir, exist_ok=True)
-    def log(msg):
-        (log_callback or print)(msg)
+# Alternate UPOS CDN edges to force-replace into the m4s URLs when the mirror
+# Bilibili handed back is throttled/unreachable. Tried in order, only after an
+# attempt produced no MP4 - no mid-download kill, no infinite loop.
+_UPOS_MIRRORS = (
+    "upos-sz-mirrorcos.bilivideo.com",
+    "upos-sz-upcdnbda2.bilivideo.com",
+    "upos-sz-mirrorali.bilivideo.com",
+    "upos-sz-mirrorhw.bilivideo.com",
+    "upos-sz-mirrorcosb.bilivideo.com",
+)
+
+
+def _run_bbdown(url, dfn_priority, output_dir, upos_host, log,
+                progress_index, progress_total):
+    """One BBDown run. Returns (new_mp4_files, returncode, risk_control_lines);
+    it never raises on a plain no-MP4 failure so the caller can rotate CDN."""
     before = _snapshot(output_dir)
     baseline_bytes = _tree_bytes(output_dir)
     # BBDown 1.6.3 turns --multi-thread ON by default; its segmented downloader
     # thrashes on a throttled CDN and stalls long videos at ~80%. The user's
     # own working tai-video.bat runs `BBDown "%link%" --multi-thread false` and
     # pulls 10-hour videos down fine, so match that: one sequential connection.
-    # This is the OPPOSITE of threading machinery, not a re-add of it.
-    # --work-dir / --dfn-priority only pick where files land and which quality;
-    # --ffmpeg-path points at the bundled ffmpeg so the merge never fails.
-    extra = _extra_bbdown_args()
+    # --upos-host + --force-replace-host swap the CDN edge when one is bad.
     cmd = [BBDOWN_PATH, url, "--work-dir", output_dir,
            "--dfn-priority", dfn_priority, "--ffmpeg-path", FFMPEG_PATH,
-           "--multi-thread", "false", *extra]
-    log("[BBDown] BBDown 1.6.3 (--multi-thread false — đơn luồng như tai-video.bat)")
-    if extra:
-        log(f"[BBDown] Dùng CDN mirror cố định: {extra[1]}")
-    log(f"[BBDown] Đang tải link {progress_index}/{progress_total}")
-    log(f"[DownloadProgress] START i={progress_index} total={progress_total}")
+           "--multi-thread", "false"]
+    if upos_host:
+        cmd += ["--upos-host", upos_host, "--force-replace-host"]
 
     process = subprocess.Popen(cmd, cwd=BBDOWN_DIR, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=False, bufsize=0)
@@ -257,27 +260,70 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     reader.join(timeout=5)
     after = _snapshot(output_dir)
     new_files = sorted(p for p, size in after.items() if before.get(p) != size)
-    if not new_files:
-        removed = _cleanup_partials(output_dir)
-        if risk_control:
-            log(f"[BBDown] {re.sub(r'https?://\\S+', '[CDN URL]', risk_control[0])}")
-            raise RuntimeError(
-                f"Link {progress_index}: Bilibili chặn (风控/chưa đăng nhập). "
-                "Mở lại hộp thoại Tải, bấm 'Đăng nhập QR' quét mã rồi tải lại. "
-                f"Đã dọn {removed} file tạm."
-            )
-        raise RuntimeError(
-            f"BBDown không tạo được MP4 cho link {progress_index} (thoát mã {process.returncode}); "
-            f"đã dọn {removed} file tạm. Thử tải riêng link này bằng nút Tải để xem lỗi BBDown."
+    return new_files, process.returncode, risk_control
+
+
+def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
+                   output_dir: str = None, log_callback=None,
+                   progress_index: int = 1, progress_total: int = 1) -> list[str]:
+    output_dir = output_dir or DOWNLOAD_DIR
+    os.makedirs(output_dir, exist_ok=True)
+    def log(msg):
+        (log_callback or print)(msg)
+
+    pinned = os.getenv("BILI2YT_BBDOWN_UPOS_HOST", "").strip()
+    # A machine that pinned a mirror (Tải dialog / config.local.json) gets that
+    # one and no rotation. Otherwise BBDown's own pick first, then rotate the
+    # mirrors - only after an attempt produced no MP4.
+    host_plan = [pinned] if pinned else ["", *_UPOS_MIRRORS]
+
+    log(f"[BBDown] Đang tải link {progress_index}/{progress_total}")
+    log(f"[DownloadProgress] START i={progress_index} total={progress_total}")
+
+    last_rc, last_risk = 1, []
+    for attempt, host in enumerate(host_plan):
+        if attempt:
+            swept = _cleanup_partials(output_dir)
+            log(f"[BBDown] CDN lỗi/bị bóp băng thông — đổi sang {host} rồi thử lại "
+                f"(mirror {attempt}/{len(host_plan) - 1}"
+                + (f", đã dọn {swept} mảnh tạm)" if swept else ")"))
+        if host:
+            label = f"CDN cố định: {host}" if pinned else f"CDN: {host}"
+        else:
+            label = "CDN mặc định của BBDown"
+        log(f"[BBDown] BBDown 1.6.3 (--multi-thread false) — {label}")
+
+        new_files, rc, risk = _run_bbdown(
+            url, dfn_priority, output_dir, host, log, progress_index, progress_total
         )
-    swept = _cleanup_partials(output_dir)
-    if swept:
-        log(f"[BBDown] Đã dọn {swept} mảnh tạm sau khi ghép")
-    log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent=100")
-    log(f"[DownloadProgress] DONE i={progress_index} total={progress_total}")
-    log(f"[BBDown] Tải xong {len(new_files)} file"
-        + ("" if process.returncode == 0 else f" (BBDown thoát mã {process.returncode})"))
-    return new_files
+        if new_files:
+            swept = _cleanup_partials(output_dir)
+            if swept:
+                log(f"[BBDown] Đã dọn {swept} mảnh tạm sau khi ghép")
+            log(f"[DownloadProgress] PERCENT i={progress_index} total={progress_total} percent=100")
+            log(f"[DownloadProgress] DONE i={progress_index} total={progress_total}")
+            log(f"[BBDown] Tải xong {len(new_files)} file"
+                + ("" if rc == 0 else f" (BBDown thoát mã {rc})"))
+            return new_files
+        last_rc, last_risk = rc, risk
+        if risk:
+            break  # not-logged-in / 风控: a different CDN won't help
+
+    removed = _cleanup_partials(output_dir)
+    if last_risk:
+        log(f"[BBDown] {re.sub(r'https?://\\S+', '[CDN URL]', last_risk[0])}")
+        raise RuntimeError(
+            f"Link {progress_index}: Bilibili chặn (风控/chưa đăng nhập). "
+            "Mở lại hộp thoại Tải, bấm 'Đăng nhập QR' quét mã rồi tải lại. "
+            f"Đã dọn {removed} file tạm."
+        )
+    tried = 1 if pinned else len(host_plan)
+    raise RuntimeError(
+        f"BBDown không tạo được MP4 cho link {progress_index} sau {tried} lần thử"
+        + ("" if pinned else " (đã đổi qua các CDN mirror)")
+        + f" (thoát mã {last_rc}); đã dọn {removed} file tạm."
+    )
+
 
 def _expand_multipart(urls: list[str], log_callback=None) -> list[str]:
     """Turn a bare multi-分P link into one `...?p=k` link per page.
