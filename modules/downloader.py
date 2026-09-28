@@ -127,9 +127,26 @@ def qr_code_path() -> str:
     return os.path.join(BBDOWN_DIR, "qrcode.png")
 
 
+def _ensure_bbdown_ok(log_callback=None) -> bool:
+    """BBDown.exe can get zeroed out by antivirus quarantine (seen in the
+    wild: Windows Defender flagged it as a PUA/HackTool on a remote machine,
+    leaving a 0-byte stub, so every BBDown action then failed with confusing
+    low-level errors - "Access is denied", "This app can't run on your PC" -
+    instead of a clear one). Before any BBDown run, re-fetch it from BBDown's
+    own GitHub release if it looks broken."""
+    try:
+        from .updater import ensure_bbdown
+    except ImportError:
+        from updater import ensure_bbdown
+    return ensure_bbdown(log_callback=log_callback)
+
+
 def bbdown_login(log_callback=None):
     def log(msg):
         (log_callback or print)(msg)
+    if not _ensure_bbdown_ok(log_callback):
+        log("[BBDown] Không đăng nhập được: BBDown.exe hỏng và tải lại tự động thất bại.")
+        return
     log("[BBDown] Đang mở cửa sổ đăng nhập QR...")
     qr_path = qr_code_path()
     # Drop a stale QR so the UI dialog only ever shows the fresh one.
@@ -267,6 +284,12 @@ def download_video(url: str, dfn_priority: str = DEFAULT_DFN_PRIORITY,
     os.makedirs(output_dir, exist_ok=True)
     def log(msg):
         (log_callback or print)(msg)
+
+    if not _ensure_bbdown_ok(log_callback):
+        raise RuntimeError(
+            "BBDown.exe hỏng (có thể bị antivirus cách ly) và tải lại tự động thất bại. "
+            "Thêm loại trừ Windows Defender cho thư mục cài rồi thử lại, hoặc chép tay bin/BBDown.exe."
+        )
 
     pinned = os.getenv("BILI2YT_BBDOWN_UPOS_HOST", "").strip()
     # A machine that pinned a mirror (Tải dialog / config.local.json) gets that

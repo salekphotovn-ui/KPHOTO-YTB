@@ -57,7 +57,7 @@ from modules.rename import auto_rename_folder
 from modules.concat import concat_videos
 from modules.updater import (
     latest_release, download_and_install,
-    ensure_whisper_large_v3, whisper_large_v3_dir,
+    ensure_whisper_large_v3, whisper_large_v3_dir, ensure_bbdown,
 )
 from config import VERSION
 
@@ -676,7 +676,16 @@ class MainWindow(QMainWindow):
         self.resize(1200, 780)
         self._build_ui_v3()
         QTimer.singleShot(1500, self._check_for_update)
+        QTimer.singleShot(2000, self._check_bbdown_health)
         QTimer.singleShot(3000, self._check_whisper_model)
+
+    def _check_bbdown_health(self):
+        """BBDown.exe can get zeroed out by antivirus quarantine (seen on a
+        remote machine: Windows Defender flagged it, leaving a 0-byte stub,
+        so login/download then failed with confusing low-level errors). Quick
+        (~8MB, no-op when already intact) silent self-heal at startup instead
+        of waiting for the user to hit a broken-exe error."""
+        self.start_task(ensure_bbdown)
 
     def _check_whisper_model(self):
         """On a Whisper-V3 machine that has never fetched large-v3, offer to

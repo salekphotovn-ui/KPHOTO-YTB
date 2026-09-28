@@ -1,8 +1,8 @@
 from __future__ import annotations
-import json, tempfile, time, zipfile, subprocess, os, sys
+import json, shutil, tempfile, time, zipfile, subprocess, os, sys
 from pathlib import Path
 from config import (
-    GITHUB_OWNER, GITHUB_REPO, app_dir,
+    GITHUB_OWNER, GITHUB_REPO, app_dir, BBDOWN_PATH,
     WHISPER_LARGE_V3_BASE_URL, WHISPER_LARGE_V3_FILES,
 )
 
@@ -117,6 +117,76 @@ def ensure_whisper_large_v3(log_callback=None, progress_callback=None) -> str | 
         log(f"[Whisper] Da cai model large-v3: {target}")
         return str(target)
     return None
+
+
+# BBDown's own permanent tagged GitHub release (not an ephemeral CI artifact -
+# those expire; a release asset does not). Verified this exact win-x64 build's
+# BBDown.exe hash matches the one this project bundles (sha256
+# eb8b985af07c4757fa695204283208aee879bf79f6462a1d161e3a55b5a19cb1).
+_BBDOWN_RELEASE_URL = (
+    "https://github.com/nilaoda/BBDown/releases/download/"
+    "1.6.3/BBDown_1.6.3_20240814_win-x64.zip"
+)
+# The real exe is ~17.9 MB; anything far below this is a truncated/corrupt
+# file - seen in the wild as a 0-byte stub after Windows Defender quarantined
+# BBDown.exe (it gets flagged as a PUA/HackTool on some machines) and left
+# every BBDown-dependent action failing with confusing low-level errors
+# ("Access is denied", "This app can't run on your PC") instead of a clear one.
+_BBDOWN_MIN_SIZE = 5_000_000
+
+
+def bbdown_ok() -> bool:
+    """True if bin/BBDown.exe exists and is at least plausibly intact."""
+    try:
+        return os.path.getsize(BBDOWN_PATH) >= _BBDOWN_MIN_SIZE
+    except OSError:
+        return False
+
+
+def ensure_bbdown(log_callback=None) -> bool:
+    """Re-fetch bin/BBDown.exe from BBDown's own GitHub release when the local
+    copy is missing or implausibly small. Returns True once BBDown.exe is
+    intact (whether it already was, or was just re-downloaded)."""
+    def log(message):
+        (log_callback or print)(message)
+
+    if bbdown_ok():
+        return True
+
+    try:
+        current_size = os.path.getsize(BBDOWN_PATH)
+    except OSError:
+        current_size = 0
+    log(
+        f"[BBDown] bin/BBDown.exe thieu hoac hong ({current_size} bytes) - "
+        "co the bi antivirus cach ly. Dang tai lai tu GitHub BBDown chinh chu..."
+    )
+    temp_dir = tempfile.mkdtemp(prefix="kphoto_bbdown_")
+    archive = os.path.join(temp_dir, "BBDown_win-x64.zip")
+    try:
+        if not _curl_to_file(_BBDOWN_RELEASE_URL, archive, timeout=120):
+            log("[BBDown] Tai that bai (mang, hoac GitHub bi chan). "
+                "Kiem tra loai tru antivirus roi thu lai, hoac chep tay bin/BBDown.exe.")
+            return False
+        with zipfile.ZipFile(archive) as zf:
+            names = [n for n in zf.namelist() if n.lower().endswith("bbdown.exe")]
+            if not names:
+                log("[BBDown] File zip tai ve khong chua BBDown.exe.")
+                return False
+            data = zf.read(names[0])
+        if len(data) < _BBDOWN_MIN_SIZE:
+            log(f"[BBDown] File tai ve qua nho ({len(data)} bytes) - co the bi hong.")
+            return False
+        target = Path(BBDOWN_PATH)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        log(f"[BBDown] Da cai lai BBDown.exe ({len(data)} bytes) tai {target}")
+        return True
+    except Exception as exc:
+        log(f"[BBDown] Loi khi tai lai BBDown.exe: {exc}")
+        return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def latest_release() -> dict | None:
