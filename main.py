@@ -52,7 +52,7 @@ from modules.srt import create_srt_batch
 from modules.translator import translate_srt_batch
 from modules.muxer import mux_folder
 from modules.exporter import export_folder
-from modules.downloader import bbdown_login, download_multiple, login_session_status
+from modules.downloader import bbdown_login, download_multiple, login_session_status, qr_code_path
 from modules.rename import auto_rename_folder
 from modules.concat import concat_videos
 from modules.updater import (
@@ -474,6 +474,72 @@ class DraggableSubtitleProxy(QGraphicsProxyWidget):
         super().mouseReleaseEvent(event)
 
 
+class QrLoginDialog(QDialog):
+    """Shows BBDown's qrcode.png inside the app instead of relying on
+    os.startfile + whatever image viewer is the default on a given remote
+    machine (WPS Photos et al. have shown an empty "Add Image" screen when
+    launched on a file BBDown was still mid-write on). Polls the file and
+    only renders it once its size is stable across two ticks, and keeps
+    polling afterwards so a QR that BBDown regenerates is picked up too."""
+
+    def __init__(self, path: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Đăng nhập QR BBDown")
+        self._path = path
+        self._last_size_seen = -1
+        self._last_loaded_key = None
+        layout = QVBoxLayout(self)
+        self.image_label = QLabel("Đang chờ mã QR từ BBDown...")
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setMinimumSize(320, 320)
+        self.image_label.setStyleSheet("background:#1c1c1c; color:#aaa; border:1px solid #444;")
+        layout.addWidget(self.image_label)
+        hint = QLabel(
+            "Mở app Bilibili trên điện thoại → quét mã → bấm 'Xác nhận' → "
+            "đợi cửa sổ console hiện '登录成功' rồi bấm Đóng."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        close_btn = QPushButton("Đóng")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._poll)
+        self._timer.start(400)
+        self._poll()
+
+    def _poll(self):
+        try:
+            if not os.path.isfile(self._path):
+                return
+            size = os.path.getsize(self._path)
+            mtime = os.path.getmtime(self._path)
+        except OSError:
+            return
+        key = (mtime, size)
+        if size <= 0 or key == self._last_loaded_key:
+            return
+        if size != self._last_size_seen:
+            # Size changed since the last tick - BBDown may still be writing
+            # this file. Wait for it to settle before trying to decode it.
+            self._last_size_seen = size
+            return
+        pixmap = QPixmap(self._path)
+        if pixmap.isNull():
+            return  # still not a valid image despite a stable size - retry
+        self._last_loaded_key = key
+        self.image_label.setText("")
+        self.image_label.setPixmap(
+            pixmap.scaled(320, 320, Qt.AspectRatioMode.KeepAspectRatio,
+                         Qt.TransformationMode.SmoothTransformation)
+        )
+
+    def closeEvent(self, event):
+        self._timer.stop()
+        super().closeEvent(event)
+
+
 class DownloadDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -525,8 +591,8 @@ class DownloadDialog(QDialog):
 
     def login(self):
         bbdown_login()
-        self.login_status.setText("Đã mở cửa sổ BBDown — quét QR xong bấm OK")
-        self.login_status.setStyleSheet("color:#e0a030")
+        QrLoginDialog(qr_code_path(), self).exec()
+        self._refresh_login_status()
 
     def accept(self):
         state, _age = login_session_status()

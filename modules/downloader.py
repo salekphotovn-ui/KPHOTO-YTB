@@ -123,12 +123,16 @@ def _probe_part_count(url: str) -> int:
     parts = {int(n) for n in _PART_LINE_RE.findall(out)}
     return max(parts) if len(parts) > 1 else 1
 
+def qr_code_path() -> str:
+    return os.path.join(BBDOWN_DIR, "qrcode.png")
+
+
 def bbdown_login(log_callback=None):
     def log(msg):
         (log_callback or print)(msg)
     log("[BBDown] Đang mở cửa sổ đăng nhập QR...")
-    qr_path = os.path.join(BBDOWN_DIR, "qrcode.png")
-    # Drop a stale QR so we only ever auto-open the fresh one.
+    qr_path = qr_code_path()
+    # Drop a stale QR so the UI dialog only ever shows the fresh one.
     try:
         os.remove(qr_path)
     except OSError:
@@ -138,23 +142,16 @@ def bbdown_login(log_callback=None):
                          creationflags=subprocess.CREATE_NEW_CONSOLE)
     else:
         subprocess.Popen([BBDOWN_PATH, "login"], cwd=BBDOWN_DIR)
-
-    def _open_qr_image():
-        # The console QR renders as broken glyphs under the cmd codepage;
-        # BBDown also writes a real qrcode.png - open that for scanning.
-        for _ in range(30):
-            time.sleep(0.5)
-            if os.path.isfile(qr_path):
-                if os.name == "nt":
-                    try:
-                        os.startfile(qr_path)  # type: ignore[attr-defined]
-                    except OSError:
-                        pass
-                return
-
-    threading.Thread(target=_open_qr_image, daemon=True).start()
-    log("[BBDown] Quét mã QR (ảnh bin/qrcode.png sẽ tự mở). Trên điện thoại "
-        "nhớ bấm 'Xác nhận', đợi cửa sổ hiện '登录成功' rồi mới đóng.")
+    # The console QR renders as broken glyphs under the cmd codepage. Used to
+    # auto os.startfile() the real qrcode.png, but on machines whose default
+    # PNG handler is something like WPS Photos, launching it on a file that
+    # BBDown is still mid-write on (or that the handler's single instance
+    # just ignores) opened an empty "Add Image" screen instead of the QR -
+    # confusing, unreliable, and impossible to predict per remote machine.
+    # The UI now shows qrcode.png itself (QrLoginDialog in main.py), which
+    # polls the file until its size is stable before rendering it.
+    log("[BBDown] Quét mã QR trong cửa sổ vừa mở trong tool. Trên điện thoại "
+        "nhớ bấm 'Xác nhận', đợi cửa sổ console hiện '登录成功' rồi mới đóng.")
 
 def _snapshot(root):
     return {str(p.resolve()): p.stat().st_size for p in Path(root).rglob("*.mp4") if p.is_file()}
